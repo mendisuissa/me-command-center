@@ -2,9 +2,12 @@
 
 (function () {
   const $ = id => document.getElementById(id);
-  const STALE_MINUTES = 75;           // the schedule runs every 30 minutes; GitHub may delay a run
+  const STALE_MINUTES = 75;        // the schedule runs every 30 minutes; GitHub may delay a run
+  const CEO_STALE_HOURS = 8;       // the CEO runs five times a day
   const REFRESH_MS = 5 * 60 * 1000;
-  const STATE_LABEL = { success: 'עובר', failure: 'נכשל', pending: 'רץ', cancelled: 'בוטל', none: 'אין ריצות', unknown: 'לא נבדק' };
+  const STATE = { success: ['ok', 'עובר'], failure: ['bad', 'נכשל'], pending: ['warn', 'רץ'], cancelled: ['', 'בוטל'],
+    none: ['', 'בלי CI'], unknown: ['', 'לא נבדק'] };
+  const AGENT = { claude: 'CEO', codex: 'Codex', chatgpt: 'ChatGPT', ceo: 'CEO' };
   let key = null;
   let lastLoad = 0;
 
@@ -27,6 +30,7 @@
   const saveKey = value => keyStore('readwrite', store => store.put(value, 'key')).catch(() => null);
   const forgetKey = () => keyStore('readwrite', store => store.delete('key')).catch(() => null);
 
+  // Every value from the data is rendered as text; nothing is ever parsed as HTML.
   function el(tag, props, children) {
     const node = document.createElement(tag);
     if (props?.className) node.className = props.className;
@@ -36,6 +40,7 @@
     return node;
   }
   const githubLink = value => (typeof value === 'string' && value.startsWith('https://github.com/') ? value : null);
+  const linkOrText = (text, url, className) => el(githubLink(url) ? 'a' : 'span', { text, href: githubLink(url), className });
   const when = value => {
     const date = new Date(value);
     return Number.isNaN(date.valueOf()) ? 'לא ידוע'
@@ -52,9 +57,13 @@
     const days = Math.round(hours / 24);
     return days === 2 ? 'לפני יומיים' : `לפני ${days} ימים`;
   };
-  const chip = state => el('span', { className: `chip ${state}`, text: STATE_LABEL[state] || state });
-  const title = item => el('p', { className: 'title' }, [el(githubLink(item.url) ? 'a' : 'span',
-    { text: item.title, href: githubLink(item.url) })]);
+  const roleOf = (item, prefix) => {
+    const label = (item.labels || []).find(name => name.startsWith(prefix));
+    return label ? AGENT[label.slice(prefix.length)] || label.slice(prefix.length) : null;
+  };
+  const needsOwner = item => (item.labels || []).includes('needs-owner');
+  // "מנחם: <question> (לענות: …)" → "<question>"
+  const ownerQuestion = text => String(text || '').replace(/^מנחם:\s*/, '').replace(/\s*\(לענות:[^)]*\)\s*$/, '');
 
   function setStatus(text, info) {
     $('lock-status').textContent = text;
@@ -69,24 +78,39 @@
     } catch { throw new Error('DATA_UNAVAILABLE'); }
   }
 
-  const AGENT = { claude: 'Claude', codex: 'Codex', chatgpt: 'ChatGPT', ceo: 'CEO' };
-  const roleOf = (item, prefix) => {
-    const label = (item.labels || []).find(name => name.startsWith(prefix));
-    return label ? AGENT[label.slice(prefix.length)] || label.slice(prefix.length) : null;
-  };
-  const needsOwner = item => (item.labels || []).includes('needs-owner');
-  const nextLine = item => (item.nextAction
-    ? el('p', { className: 'next' }, [el('span', { text: 'פעולה הבאה' }), document.createTextNode(item.nextAction)])
-    : el('p', { className: 'next missing', text: 'פעולה הבאה לא הוגדרה' }));
+  function renderVerdict(data, github, waiting, down) {
+    const ageMinutes = (Date.now() - Date.parse(data.generatedAt)) / 60000;
+    const ceoHours = data.manager ? (Date.now() - Date.parse(data.manager.updatedAt)) / 3600000 : Infinity;
+    let state = 'ok';
+    let text = 'הכל עובד. אין שום דבר שמחכה לך.';
+    if (!github?.ok) { state = 'bad'; text = 'לא הצלחתי לקרוא את GitHub בעדכון האחרון'; }
+    else if (down.length) { state = 'bad'; text = down.length === 1 ? `${down[0]} לא עונה` : `${down.length} מערכות לא עונות: ${down.join(', ')}`; }
+    else if (waiting) { state = 'warn'; text = waiting === 1 ? 'החלטה אחת מחכה לך' : `${waiting} החלטות מחכות לך`; }
+    else if (!(ageMinutes <= STALE_MINUTES)) { state = 'warn'; text = 'הנתונים לא התעדכנו כבר זמן רב'; }
+    else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מ-8 שעות'; }
+    $('verdict').className = `verdict ${state}`;
+    $('verdict-text').textContent = text;
+
+    const systems = data.fleet?.systems || [];
+    const meta = [
+      down.length && waiting ? (waiting === 1 ? 'גם: החלטה אחת מחכה לך' : `גם: ${waiting} החלטות מחכות לך`) : null,
+      systems.length ? `${systems.length - down.length}/${systems.length} מערכות תקינות` : null,
+      `${data.issues.length} משימות · ${data.pulls.length} PR`,
+      data.manager ? `CEO: ${ago(data.manager.updatedAt)}` : 'CEO: עוד לא דיווח',
+      `נתונים: ${ago(data.generatedAt)}`,
+    ].filter(Boolean);
+    $('verdict-meta').replaceChildren(...meta.map(text => el('li', { text })));
+  }
 
   function renderOwner(issues) {
     const waiting = issues.filter(needsOwner);
+    $('owner-count').textContent = waiting.length ? `${waiting.length}` : '';
     $('owner').replaceChildren(...(waiting.length ? waiting.map(issue => {
-      // Jump straight to the comment box; the CEO acts on a comment that starts with "החלטה:".
       const link = githubLink(issue.url);
-      return el('article', { className: 'card owner' }, [
-        el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
-        title(issue), nextLine(issue),
+      return el('article', { className: 'decision' }, [
+        el('p', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
+        el('p', { className: 'question', text: ownerQuestion(issue.nextAction) || issue.title }),
+        el('p', { className: 'about' }, [document.createTextNode('בנושא: '), linkOrText(issue.title, issue.url)]),
         link ? el('a', { className: 'answer', text: 'לענות', href: `${link}#new_comment_field` }) : null,
       ]);
     }) : [el('p', { className: 'empty', text: 'אין החלטות שמחכות לך.' })]));
@@ -94,48 +118,83 @@
   }
 
   // The CEO edits one report issue on every run, so the report's age is the CEO's heartbeat.
-  function renderManager(ceo) {
-    const CEO_STALE_HOURS = 8;
+  function renderCeo(ceo) {
     if (!ceo) {
-      $('manager').replaceChildren(el('p', { className: 'banner warn', text: 'ה-CEO עוד לא פרסם דוח.' }));
+      $('ceo-age').textContent = '';
+      $('manager').replaceChildren(el('p', { className: 'empty', text: 'ה-CEO עוד לא פרסם דוח.' }));
       return;
     }
     const hours = (Date.now() - Date.parse(ceo.updatedAt)) / 3600000;
-    const link = githubLink(ceo.url);
-    $('manager').replaceChildren(el('article', { className: `card${hours > CEO_STALE_HOURS ? ' stale' : ''}` }, [
-      el('p', { className: 'title' }, [el(link ? 'a' : 'span', { text: `דוח CEO: עודכן ${ago(ceo.updatedAt)}`, href: link })]),
-      hours > CEO_STALE_HOURS
-        ? el('p', { className: 'meta', text: `ה-CEO לא דיווח יותר מ-${CEO_STALE_HOURS} שעות, וייתכן שהוא הפסיק לרוץ.` })
-        : el('p', { className: 'meta', text: 'ה-CEO פעיל. הדוח המלא נפתח בקישור.' }),
-    ]));
+    $('ceo-age').textContent = ago(ceo.updatedAt);
+    // replaceChildren would print a skipped (null) part as the text "null", so drop them first.
+    $('manager').replaceChildren(...[
+      hours > CEO_STALE_HOURS ? el('p', { className: 'stale-note', text: `ה-CEO לא דיווח יותר מ-${CEO_STALE_HOURS} שעות, וייתכן שהוא הפסיק לרוץ.` }) : null,
+      ceo.verdict ? el('p', { className: 'ceo-verdict', text: ceo.verdict }) : null,
+      // The health panel already shows the fleet; keep the CEO card to progress, blockers and the next step.
+      ...(ceo.sections || []).filter(section => !section.title.startsWith('בריאות')).map(section => el('section', { className: 'ceo-section' }, [
+        el('h3', { text: section.title }),
+        el('ul', null, [
+          ...section.items.slice(0, 4).map(item => el('li', { text: item })),
+          section.items.length > 4 ? el('li', { className: 'more', text: `ועוד ${section.items.length - 4} בדוח המלא` }) : null,
+        ]),
+      ])),
+      linkOrText('לדוח המלא ב-GitHub', ceo.url, 'ceo-link'),
+    ].filter(Boolean));
+  }
+
+  function renderFleet(fleet) {
+    const systems = fleet?.systems || [];
+    $('fleet-age').textContent = fleet?.checkedAt ? ago(fleet.checkedAt) : '';
+    if (fleet?.error) {
+      $('fleet').replaceChildren(el('p', { className: 'empty', text: 'רשימת המערכות לא תקינה, ולכן לא נבדקה.' }));
+      return [];
+    }
+    $('fleet').replaceChildren(...(systems.length ? systems.map(system => el('div', { className: `row sys ${system.ok ? 'ok' : 'bad'}` }, [
+      el('span', { className: 'state-dot' }),
+      el('span', { className: 'name', text: system.name }),
+      el('span', { className: 'detail', text: system.ok ? `תקין · ${system.ms}ms`
+        : system.error === 'TIMEOUT' ? 'לא עונה' : system.status ? `שגיאה ${system.status}` : 'לא זמין' }),
+    ])) : [el('p', { className: 'empty', text: 'עוד לא הוגדרה רשימת מערכות.' })]));
+    return systems.filter(system => !system.ok).map(system => system.name);
   }
 
   function renderTasks(issues) {
-    const rank = item => (item.priority ? Number(item.priority.slice(1)) : 9);
+    const rank = item => (needsOwner(item) ? -1 : item.priority ? Number(item.priority.slice(1)) : 9);
     const sorted = [...issues].sort((a, b) => rank(a) - rank(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-    $('tasks').replaceChildren(...(sorted.length ? sorted.map(issue => el('article', { className: 'card' }, [
-      el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }),
-        issue.priority ? el('span', { className: 'chip priority', text: issue.priority }) : null,
-        needsOwner(issue) ? el('span', { className: 'chip owner', text: 'מחכה לך' }) : null,
-        el('span', { text: roleOf(issue, 'driver:') ? `מבצע: ${roleOf(issue, 'driver:')}` : 'לא שובץ' }),
-        roleOf(issue, 'reviewer:') ? el('span', { text: `בודק: ${roleOf(issue, 'reviewer:')}` }) : null,
-        el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
-      title(issue), nextLine(issue),
-    ])) : [el('p', { className: 'empty', text: 'אין משימות פתוחות.' })]));
+    $('tasks-count').textContent = `${issues.length}`;
+    $('tasks').replaceChildren(...(sorted.length ? sorted.map(issue => {
+      const p0 = (issue.labels || []).some(name => /\[?P0\]?/.test(name)) || /\[P0\]/.test(issue.title);
+      return el('article', { className: 'row' }, [
+        el('div', { className: 'line' }, [el('span', { className: 'num', text: `#${issue.number}` }),
+          el('p', { className: 'title' }, [linkOrText(issue.title, issue.url)])]),
+        el('div', { className: 'chips' }, [
+          needsOwner(issue) ? el('span', { className: 'chip owner', text: 'מחכה לך' }) : null,
+          issue.priority || p0 ? el('span', { className: 'chip p0', text: issue.priority || 'P0' }) : null,
+          roleOf(issue, 'driver:') ? el('span', { className: 'chip', text: `מבצע: ${roleOf(issue, 'driver:')}` }) : null,
+          roleOf(issue, 'reviewer:') ? el('span', { className: 'chip', text: `בודק: ${roleOf(issue, 'reviewer:')}` }) : null,
+          el('span', { className: 'chip', text: ago(issue.updatedAt) }),
+        ]),
+        el('p', { className: 'next' }, [el('b', { text: 'הבא: ' }),
+          document.createTextNode(issue.nextAction || 'לא הוגדר')]),
+      ]);
+    }) : [el('p', { className: 'empty', text: 'אין משימות פתוחות.' })]));
   }
 
   function renderPulls(pulls) {
+    $('prs-count').textContent = `${pulls.length}`;
     $('prs').replaceChildren(...(pulls.length ? pulls.map(pull => {
-      const failing = pull.ci.workflows.find(workflow => workflow.state === 'failure');
-      return el('article', { className: 'card' }, [
-        el('div', { className: 'meta' }, [el('span', { text: `PR #${pull.number}` }),
-          pull.draft ? el('span', { className: 'chip', text: 'טיוטה' }) : null, chip(pull.ci.state),
-          el('span', { text: `עודכן ${ago(pull.updatedAt)}` })]),
-        title(pull),
-        failing ? el('p', { className: 'meta' }, [document.createTextNode('נכשל: '),
-          el(githubLink(failing.url) ? 'a' : 'span', { text: failing.name, href: githubLink(failing.url) })]) : null,
+      const [tone, label] = STATE[pull.ci.state] || ['', pull.ci.state];
+      return el('article', { className: 'row' }, [
+        el('div', { className: 'line' }, [el('span', { className: 'num', text: `#${pull.number}` }),
+          el('p', { className: 'title' }, [linkOrText(pull.title, pull.url)])]),
+        el('div', { className: 'chips' }, [
+          el('span', { className: `chip ${tone}`, text: `CI: ${label}` }),
+          pull.draft ? el('span', { className: 'chip', text: 'טיוטה' }) : null,
+          el('span', { className: 'chip', text: ago(pull.updatedAt) }),
+        ]),
       ]);
-    }) : [el('p', { className: 'empty', text: 'אין PR פתוחים.' })]));
+    }) : [el('p', { className: 'empty', text: 'אין עבודה פתוחה.' })]));
+    return pulls.filter(pull => pull.ci.state === 'failure').length;
   }
 
   function renderMain(main) {
@@ -143,41 +202,35 @@
     // The source repo runs CI on pull requests only; an always-empty section would just be noise.
     $('ci-section').hidden = !workflows.length;
     $('ci-title').textContent = main ? `CI בענף ${main.name}` : 'CI בענף הראשי';
-    $('ci').replaceChildren(...workflows.map(workflow => el('article', { className: 'card' }, [
-      el('div', { className: 'meta' }, [chip(workflow.state), el('span', { text: ago(workflow.updatedAt) })]),
-      el('p', { className: 'title' }, [el(githubLink(workflow.url) ? 'a' : 'span',
-        { text: workflow.name, href: githubLink(workflow.url) })]),
-    ])));
+    $('ci').replaceChildren(...workflows.map(workflow => {
+      const [tone, label] = STATE[workflow.state] || ['', workflow.state];
+      return el('div', { className: `row sys ${tone === 'bad' ? 'bad' : tone === 'ok' ? 'ok' : ''}` }, [
+        el('span', { className: 'state-dot' }), linkOrText(workflow.name, workflow.url, 'name'),
+        el('span', { className: 'detail', text: `${label} · ${ago(workflow.updatedAt)}` }),
+      ]);
+    }));
   }
 
   function render(data) {
     const github = (data.sources || []).find(source => source.name === 'github');
     const banners = [];
-    const ageMinutes = (Date.now() - Date.parse(data.generatedAt)) / 60000;
-    if (!(ageMinutes <= STALE_MINUTES)) {
-      banners.push(el('p', { className: 'banner warn', text: `הנתונים נאספו ${ago(data.generatedAt)}. העדכון האוטומטי אמור לרוץ כל 30 דקות, ולכן ייתכן שהוא נעצר.` }));
-    }
     if (!github?.ok) {
       const hint = github?.error === 'GITHUB_HTTP_401' ? ' ייתכן שתוקף הטוקן של GitHub פג.' : '';
-      banners.push(el('p', { className: 'banner bad', text: `קריאת GitHub נכשלה בעדכון האחרון (${github?.error || 'UNKNOWN'}), ולכן אין כאן נתוני משימות.${hint}` }));
+      banners.push(el('p', { className: 'banner bad', text: `קריאת GitHub נכשלה (${github?.error || 'UNKNOWN'}), ולכן אין כאן נתוני משימות.${hint}` }));
+    }
+    if (!((Date.now() - Date.parse(data.generatedAt)) / 60000 <= STALE_MINUTES)) {
+      banners.push(el('p', { className: 'banner warn', text: `הנתונים נאספו ${ago(data.generatedAt)}. העדכון האוטומטי אמור לרוץ כל 30 דקות, וייתכן שהוא נעצר.` }));
     }
     $('banners').replaceChildren(...banners);
 
-    const failing = (data.mainBranch?.workflows || []).filter(w => w.state === 'failure').length +
-      data.pulls.filter(pull => pull.ci.state === 'failure').length;
-    $('issue-count').textContent = github?.ok ? data.issues.length : 'לא זמין';
-    $('ci-count').textContent = github?.ok ? failing : 'לא זמין';
-    $('ci-tile').classList.toggle('alert', github?.ok && failing > 0);
-    $('age').textContent = ago(data.generatedAt);
-    $('generated').textContent = `נאסף: ${when(data.generatedAt)}`;
+    const down = renderFleet(data.fleet);
     const waiting = renderOwner(data.issues);
-    $('owner-count').textContent = github?.ok ? waiting : 'לא זמין';
-    $('owner-tile').classList.toggle('alert', github?.ok && waiting > 0);
-    $('prs-title').textContent = `עבודה בתהליך (${data.pulls.length} Pull Requests)`;
-    renderManager(github?.ok ? data.manager : undefined);
+    renderVerdict(data, github, waiting, down);
+    renderCeo(github?.ok ? data.manager : null);
     renderTasks(data.issues);
     renderPulls(data.pulls);
     renderMain(data.mainBranch);
+    $('generated').textContent = `נאסף: ${when(data.generatedAt)}`;
   }
 
   function show(unlocked) {
@@ -206,7 +259,7 @@
   async function lock() {
     key = null;
     await forgetKey();
-    ['owner', 'manager', 'tasks', 'prs', 'ci', 'banners'].forEach(id => $(id).replaceChildren());
+    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta'].forEach(id => $(id).replaceChildren());
     show(false);
     setStatus('');
     $('passphrase').focus();

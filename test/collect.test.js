@@ -68,7 +68,7 @@ test('the CEO report issue becomes the CEO heartbeat, not a task; role labels ar
   assert.deepEqual(data.issues.map(issue => issue.number), [11]);
   assert.deepEqual(data.issues[0].labels, ['driver:claude', 'needs-owner']);
   assert.deepEqual(data.manager, { number: 18, url: 'https://github.com/owner/private-repo/issues/18',
-    updatedAt: '2026-10-29T22:00:00Z' });
+    updatedAt: '2026-10-29T22:00:00Z', verdict: null, sections: [] });
 });
 
 test('a GitHub failure is published as an error code with no stale task data', async () => {

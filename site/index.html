@@ -2,67 +2,92 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f3f6fa" media="(prefers-color-scheme: light)">
   <title>מרכז שליטה</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header>
-    <div><p class="eyebrow">MODERN ENDPOINT</p><h1>מרכז שליטה</h1></div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">ME</span>
+      <div><p class="eyebrow">Modern Endpoint</p><h1>מרכז שליטה</h1></div>
+    </div>
     <div class="actions" id="actions" hidden>
-      <button id="refresh" type="button">רענון</button>
-      <button id="lock" type="button" class="quiet">נעילה</button>
+      <button id="refresh" class="icon-btn" type="button" aria-label="רענון" title="רענון">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+      </button>
+      <button id="lock" class="icon-btn" type="button" aria-label="נעילה" title="נעילה">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      </button>
     </div>
   </header>
 
   <main>
     <section id="locked" class="lock" aria-labelledby="lock-title">
-      <h2 id="lock-title">הדשבורד נעול</h2>
-      <p>הנתונים מוצפנים. הקלד את הסיסמה כדי לפתוח אותם במכשיר הזה.</p>
+      <span class="mark large" aria-hidden="true">ME</span>
+      <h2 id="lock-title">מרכז השליטה נעול</h2>
+      <p>הנתונים מוצפנים, והם נפתחים רק במכשיר שלך.</p>
       <form id="unlock" novalidate>
         <input type="text" name="username" autocomplete="username" value="command-center" class="visually-hidden" tabindex="-1" aria-hidden="true">
         <label for="passphrase">סיסמה</label>
         <input id="passphrase" name="password" type="password" autocomplete="current-password" required dir="ltr" spellcheck="false">
         <label class="check"><input id="remember" type="checkbox"> לזכור במכשיר הזה</label>
-        <button id="unlock-button" type="submit">פתיחה</button>
+        <button id="unlock-button" class="primary" type="submit">פתיחה</button>
         <p id="lock-status" role="status"></p>
       </form>
     </section>
 
     <div id="dashboard" hidden>
+      <section id="verdict" class="verdict" aria-live="polite">
+        <div class="verdict-line"><span class="dot" aria-hidden="true"></span><h2 id="verdict-text">—</h2></div>
+        <ul id="verdict-meta" class="verdict-meta"></ul>
+      </section>
       <div id="banners"></div>
-      <section class="summary" aria-label="סיכום">
-        <article id="owner-tile"><span>מחכה לך</span><strong id="owner-count">—</strong></article>
-        <article><span>משימות פתוחות</span><strong id="issue-count">—</strong></article>
-        <article id="ci-tile"><span>CI נכשל</span><strong id="ci-count">—</strong></article>
-        <article><span>עדכון אחרון</span><strong id="age">—</strong></article>
-      </section>
-      <section aria-labelledby="owner-title">
-        <h2 id="owner-title">מחכה להחלטה שלך</h2>
-        <p class="hint">לוחצים "לענות" וכותבים תגובה שמתחילה ב-<b>החלטה: כן</b> או <b>החלטה: לא</b>. ה-CEO מבצע בריצה הבאה שלו, ובכל מקרה בתוך 4 שעות.</p>
-        <div id="owner" class="cards"></div>
-      </section>
-      <section aria-labelledby="manager-title">
-        <h2 id="manager-title">CEO</h2>
-        <div id="manager"></div>
-      </section>
-      <section aria-labelledby="tasks-title">
-        <h2 id="tasks-title">כל המשימות</h2>
-        <div id="tasks" class="cards"></div>
-      </section>
-      <section aria-labelledby="prs-title">
-        <h2 id="prs-title">עבודה בתהליך (Pull Requests)</h2>
-        <div id="prs" class="cards"></div>
-      </section>
-      <section id="ci-section" aria-labelledby="ci-title" hidden>
-        <h2 id="ci-title">CI בענף הראשי</h2>
-        <div id="ci" class="cards compact"></div>
-      </section>
-      <footer><p id="generated">—</p><p>מוצפן · קריאה בלבד · מתעדכן אוטומטית כל 30 דקות</p></footer>
+
+      <div class="layout">
+        <div class="col">
+          <section class="panel" aria-labelledby="owner-title">
+            <div class="panel-head"><h2 id="owner-title">מחכה להחלטה שלך</h2><span id="owner-count" class="count"></span></div>
+            <p class="hint">לוחצים "לענות" וכותבים תגובה שמתחילה ב-<b>החלטה: כן</b> או <b>החלטה: לא</b>. ה-CEO מבצע בריצה הבאה שלו, תוך 4 שעות לכל היותר.</p>
+            <div id="owner" class="stack"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="ceo-title">
+            <div class="panel-head"><h2 id="ceo-title">דוח ה-CEO</h2><span id="ceo-age" class="count"></span></div>
+            <div id="manager"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="tasks-title">
+            <div class="panel-head"><h2 id="tasks-title">משימות</h2><span id="tasks-count" class="count"></span></div>
+            <div id="tasks" class="rows"></div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="panel" aria-labelledby="fleet-title">
+            <div class="panel-head"><h2 id="fleet-title">בריאות מערכות</h2><span id="fleet-age" class="count"></span></div>
+            <div id="fleet" class="rows"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="prs-title">
+            <div class="panel-head"><h2 id="prs-title">עבודה בתהליך</h2><span id="prs-count" class="count"></span></div>
+            <div id="prs" class="rows"></div>
+          </section>
+
+          <section id="ci-section" class="panel" aria-labelledby="ci-title" hidden>
+            <div class="panel-head"><h2 id="ci-title">CI בענף הראשי</h2></div>
+            <div id="ci" class="rows"></div>
+          </section>
+        </div>
+      </div>
+
+      <footer><p id="generated">—</p><p>מוצפן · קריאה בלבד · מתעדכן כל 30 דקות</p></footer>
     </div>
   </main>
   <script src="vault.js"></script>

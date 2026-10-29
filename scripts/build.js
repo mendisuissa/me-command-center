@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { collect } = require('./collect');
+const { probeFleet, parseFleet } = require('./fleet');
 const vault = require('../site/vault');
 
 const MIN_PASSPHRASE = 24;
@@ -28,9 +29,15 @@ async function main(env = process.env) {
   if (!env.CC_SOURCE_REPO) fail('CC_SOURCE_REPO_MISSING');
 
   const data = await collect({ token: env.CC_SOURCE_TOKEN.trim(), repo: env.CC_SOURCE_REPO.trim() });
+  let fleetUrls = [];
+  try {
+    fleetUrls = parseFleet(env.CC_FLEET).map(system => system.url);
+    data.fleet = await probeFleet(env.CC_FLEET);
+  } catch { data.fleet = { error: 'CC_FLEET_INVALID', systems: [] }; }
   const envelope = await vault.seal(await vault.deriveKey(passphrase), data);
   const serialized = JSON.stringify(envelope);
   assertNoPlaintext(serialized, data);
+  if (fleetUrls.some(url => serialized.includes(new URL(url).hostname))) fail('PLAINTEXT_IN_OUTPUT');
 
   const out = path.join(ROOT, '_site');
   fs.rmSync(out, { recursive: true, force: true });

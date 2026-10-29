@@ -47,6 +47,20 @@ async function readAll(read, path, maxPages = 3) {
 
 const safeUrl = value => (typeof value === 'string' && value.startsWith('https://github.com/') ? value : null);
 
+// The CEO report is markdown the CEO writes in a fixed shape. Keep only plain text: the verdict line
+// and each section's bullets. The owner-decision section is skipped, because labels already drive it.
+function parseCeoReport(body) {
+  const text = String(body || '').slice(0, 20_000).replace(/<!--[\s\S]*?-->/g, '');
+  const plain = value => value.replace(/\*\*|`/g, '').trim().slice(0, 300);
+  const verdictLine = text.split('\n').find(line => line.startsWith('**ריצה אחרונה:**'));
+  const sections = text.split(/\n(?=## )/).slice(1).map(chunk => {
+    const [heading, ...lines] = chunk.split('\n');
+    return { title: plain(heading.replace(/^##\s*/, '')).slice(0, 80),
+      items: lines.filter(line => /^\s*-\s+\S/.test(line)).map(line => plain(line.replace(/^\s*-\s+/, ''))).slice(0, 8) };
+  }).filter(section => section.items.length && !section.title.startsWith('מחכה להחלטה')).slice(0, 6);
+  return { verdict: verdictLine ? plain(verdictLine.replace('**ריצה אחרונה:**', '')) : null, sections };
+}
+
 // The latest run of each workflow decides the state; an older failure that was re-run green does not.
 function summarizeRuns(runs) {
   const latest = new Map();
@@ -80,7 +94,8 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     const labelsOf = item => (item.labels || []).map(label => String(label.name || ''));
     // The CEO's in-place report issue is shown as the CEO's heartbeat, not as a task.
     const report = issues.find(item => !item.pull_request && labelsOf(item).includes('ceo'));
-    result.manager = report ? { number: report.number, url: safeUrl(report.html_url), updatedAt: report.updated_at || null } : null;
+    result.manager = report ? { number: report.number, url: safeUrl(report.html_url), updatedAt: report.updated_at || null,
+      ...parseCeoReport(report.body) } : null;
     result.issues = issues.filter(item => !item.pull_request && item !== report).map(item => ({
       number: item.number, title: String(item.title || '').slice(0, 300), url: safeUrl(item.html_url),
       owner: item.assignee?.login || null,
@@ -111,4 +126,4 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
   return result;
 }
 
-module.exports = { collect, summarizeRuns, createGitHubReader };
+module.exports = { collect, summarizeRuns, createGitHubReader, parseCeoReport };

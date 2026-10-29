@@ -33,6 +33,7 @@ jobs:
           CC_SOURCE_TOKEN: ${{ secrets.CC_SOURCE_TOKEN }}
           CC_SOURCE_REPO: ${{ secrets.CC_SOURCE_REPO }}
           CC_PASSPHRASE: ${{ secrets.CC_PASSPHRASE }}
+          CC_FLEET: ${{ secrets.CC_FLEET }}
         run: node scripts/build.js
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
