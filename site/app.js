@@ -69,18 +69,53 @@
     } catch { throw new Error('DATA_UNAVAILABLE'); }
   }
 
+  const AGENT = { claude: 'Claude', codex: 'Codex', chatgpt: 'ChatGPT', ceo: 'CEO' };
+  const roleOf = (item, prefix) => {
+    const label = (item.labels || []).find(name => name.startsWith(prefix));
+    return label ? AGENT[label.slice(prefix.length)] || label.slice(prefix.length) : null;
+  };
+  const needsOwner = item => (item.labels || []).includes('needs-owner');
+  const nextLine = item => (item.nextAction
+    ? el('p', { className: 'next' }, [el('span', { text: 'פעולה הבאה' }), document.createTextNode(item.nextAction)])
+    : el('p', { className: 'next missing', text: 'פעולה הבאה לא הוגדרה' }));
+
+  function renderOwner(issues) {
+    const waiting = issues.filter(needsOwner);
+    $('owner').replaceChildren(...(waiting.length ? waiting.map(issue => el('article', { className: 'card owner' }, [
+      el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
+      title(issue), nextLine(issue),
+    ])) : [el('p', { className: 'empty', text: 'אין החלטות שמחכות לך.' })]));
+    return waiting.length;
+  }
+
+  // The CEO edits one report issue on every run, so the report's age is the CEO's heartbeat.
+  function renderManager(ceo) {
+    const CEO_STALE_HOURS = 8;
+    if (!ceo) {
+      $('manager').replaceChildren(el('p', { className: 'banner warn', text: 'ה-CEO עוד לא פרסם דוח.' }));
+      return;
+    }
+    const hours = (Date.now() - Date.parse(ceo.updatedAt)) / 3600000;
+    const link = githubLink(ceo.url);
+    $('manager').replaceChildren(el('article', { className: `card${hours > CEO_STALE_HOURS ? ' stale' : ''}` }, [
+      el('p', { className: 'title' }, [el(link ? 'a' : 'span', { text: `דוח CEO: עודכן ${ago(ceo.updatedAt)}`, href: link })]),
+      hours > CEO_STALE_HOURS
+        ? el('p', { className: 'meta', text: `ה-CEO לא דיווח יותר מ-${CEO_STALE_HOURS} שעות, וייתכן שהוא הפסיק לרוץ.` })
+        : el('p', { className: 'meta', text: 'ה-CEO פעיל. הדוח המלא נפתח בקישור.' }),
+    ]));
+  }
+
   function renderTasks(issues) {
     const rank = item => (item.priority ? Number(item.priority.slice(1)) : 9);
     const sorted = [...issues].sort((a, b) => rank(a) - rank(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
     $('tasks').replaceChildren(...(sorted.length ? sorted.map(issue => el('article', { className: 'card' }, [
       el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }),
         issue.priority ? el('span', { className: 'chip priority', text: issue.priority }) : null,
-        el('span', { text: issue.owner ? `אחראי: ${issue.owner}` : 'לא הוקצה' }),
+        needsOwner(issue) ? el('span', { className: 'chip owner', text: 'מחכה לך' }) : null,
+        el('span', { text: roleOf(issue, 'driver:') ? `מבצע: ${roleOf(issue, 'driver:')}` : 'לא שובץ' }),
+        roleOf(issue, 'reviewer:') ? el('span', { text: `בודק: ${roleOf(issue, 'reviewer:')}` }) : null,
         el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
-      title(issue),
-      issue.nextAction
-        ? el('p', { className: 'next' }, [el('span', { text: 'פעולה הבאה' }), document.createTextNode(issue.nextAction)])
-        : el('p', { className: 'next missing', text: 'פעולה הבאה לא הוגדרה' }),
+      title(issue), nextLine(issue),
     ])) : [el('p', { className: 'empty', text: 'אין משימות פתוחות.' })]));
   }
 
@@ -126,11 +161,15 @@
     const failing = (data.mainBranch?.workflows || []).filter(w => w.state === 'failure').length +
       data.pulls.filter(pull => pull.ci.state === 'failure').length;
     $('issue-count').textContent = github?.ok ? data.issues.length : 'לא זמין';
-    $('pr-count').textContent = github?.ok ? data.pulls.length : 'לא זמין';
     $('ci-count').textContent = github?.ok ? failing : 'לא זמין';
     $('ci-tile').classList.toggle('alert', github?.ok && failing > 0);
     $('age').textContent = ago(data.generatedAt);
     $('generated').textContent = `נאסף: ${when(data.generatedAt)}`;
+    const waiting = renderOwner(data.issues);
+    $('owner-count').textContent = github?.ok ? waiting : 'לא זמין';
+    $('owner-tile').classList.toggle('alert', github?.ok && waiting > 0);
+    $('prs-title').textContent = `עבודה בתהליך (${data.pulls.length} Pull Requests)`;
+    renderManager(github?.ok ? data.manager : undefined);
     renderTasks(data.issues);
     renderPulls(data.pulls);
     renderMain(data.mainBranch);
@@ -162,7 +201,7 @@
   async function lock() {
     key = null;
     await forgetKey();
-    ['tasks', 'prs', 'ci', 'banners'].forEach(id => $(id).replaceChildren());
+    ['owner', 'manager', 'tasks', 'prs', 'ci', 'banners'].forEach(id => $(id).replaceChildren());
     show(false);
     setStatus('');
     $('passphrase').focus();

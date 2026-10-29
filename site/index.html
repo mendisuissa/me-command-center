@@ -36,17 +36,25 @@
     <div id="dashboard" hidden>
       <div id="banners"></div>
       <section class="summary" aria-label="סיכום">
+        <article id="owner-tile"><span>מחכה לך</span><strong id="owner-count">—</strong></article>
         <article><span>משימות פתוחות</span><strong id="issue-count">—</strong></article>
-        <article><span>PR פתוחים</span><strong id="pr-count">—</strong></article>
         <article id="ci-tile"><span>CI נכשל</span><strong id="ci-count">—</strong></article>
         <article><span>עדכון אחרון</span><strong id="age">—</strong></article>
       </section>
+      <section aria-labelledby="owner-title">
+        <h2 id="owner-title">מחכה להחלטה שלך</h2>
+        <div id="owner" class="cards"></div>
+      </section>
+      <section aria-labelledby="manager-title">
+        <h2 id="manager-title">CEO</h2>
+        <div id="manager"></div>
+      </section>
       <section aria-labelledby="tasks-title">
-        <h2 id="tasks-title">משימות פתוחות</h2>
+        <h2 id="tasks-title">כל המשימות</h2>
         <div id="tasks" class="cards"></div>
       </section>
       <section aria-labelledby="prs-title">
-        <h2 id="prs-title">Pull Requests</h2>
+        <h2 id="prs-title">עבודה בתהליך (Pull Requests)</h2>
         <div id="prs" class="cards"></div>
       </section>
       <section id="ci-section" aria-labelledby="ci-title" hidden>

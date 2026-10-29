@@ -65,6 +65,11 @@ input[type=password]{min-height:48px;width:100%;padding:.6rem .8rem;border:1px s
 .chip.failure{color:var(--bad);border-color:#8a3646}
 .chip.pending{color:var(--warn);border-color:#81693a}
 .chip.priority{color:var(--text);background:#123b60;border-color:var(--accent)}
+.chip.owner{color:#1b1300;background:var(--warn);border-color:var(--warn)}
+.card.owner{border-color:var(--warn)}
+.card.owner .next{border-color:var(--warn)}
+.card.stale{border-color:var(--warn)}
+.card.stale .meta{color:var(--warn)}
 
 .banner{padding:1rem;border-radius:12px;line-height:1.6;border:1px solid}
 .banner.warn{background:#3d3215;border-color:var(--warn)}

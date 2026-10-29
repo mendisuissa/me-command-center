@@ -70,14 +70,18 @@ function summarizeRuns(runs) {
 async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
   const generatedAt = new Date(now()).toISOString();
   const read = createGitHubReader({ token, repo, fetchImpl });
-  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null };
+  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null, manager: null };
   try {
     const [meta, issues, pulls] = await Promise.all([
       read(''),
       readAll(read, '/issues?state=open&sort=updated&direction=desc'),
       readAll(read, '/pulls?state=open&sort=updated&direction=desc'),
     ]);
-    result.issues = issues.filter(item => !item.pull_request).map(item => ({
+    const labelsOf = item => (item.labels || []).map(label => String(label.name || ''));
+    // The CEO's in-place report issue is shown as the CEO's heartbeat, not as a task.
+    const report = issues.find(item => !item.pull_request && labelsOf(item).includes('ceo'));
+    result.manager = report ? { number: report.number, url: safeUrl(report.html_url), updatedAt: report.updated_at || null } : null;
+    result.issues = issues.filter(item => !item.pull_request && item !== report).map(item => ({
       number: item.number, title: String(item.title || '').slice(0, 300), url: safeUrl(item.html_url),
       owner: item.assignee?.login || null,
       priority: (item.labels || []).map(label => String(label.name || '')).find(name => /^P[0-3]$/i.test(name)) || null,
@@ -90,6 +94,7 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     result.pulls = pulls.map((pull, index) => ({
       number: pull.number, title: String(pull.title || '').slice(0, 300), url: safeUrl(pull.html_url),
       draft: Boolean(pull.draft), author: pull.user?.login || null, updatedAt: pull.updated_at || null,
+      labels: labelsOf(pull).slice(0, 12),
       ci: index < pullsWithCi.length ? summarizeRuns(ci[index]?.workflow_runs) : { state: 'unknown', workflows: [] },
     }));
     const branch = String(meta?.default_branch || '');
@@ -99,7 +104,7 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     result.sources.push({ name: 'github', ok: true, fetchedAt: generatedAt });
   } catch (error) {
     // Publish the failure itself (encrypted) instead of stale numbers presented as current.
-    result.issues = []; result.pulls = []; result.mainBranch = null;
+    result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null;
     result.sources.push({ name: 'github', ok: false, fetchedAt: generatedAt,
       error: /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'GITHUB_COLLECTION_FAILED' });
   }

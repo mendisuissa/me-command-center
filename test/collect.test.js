@@ -58,6 +58,19 @@ test('collects issues, PR CI and main-branch CI with read-only authenticated GET
   assert.equal(JSON.stringify(data).includes(TOKEN), false);
 });
 
+test('the CEO report issue becomes the CEO heartbeat, not a task; role labels are kept', async () => {
+  const { fetchImpl } = fakeGitHub({ '/issues': [
+    { id: 1, number: 11, title: 'Task', labels: [{ name: 'driver:claude' }, { name: 'needs-owner' }], body: '' },
+    { id: 9, number: 18, title: 'דוח CEO', labels: [{ name: 'ceo' }], updated_at: '2026-10-29T22:00:00Z',
+      html_url: 'https://github.com/owner/private-repo/issues/18', body: '## Next action\n- CEO: report' },
+  ] });
+  const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
+  assert.deepEqual(data.issues.map(issue => issue.number), [11]);
+  assert.deepEqual(data.issues[0].labels, ['driver:claude', 'needs-owner']);
+  assert.deepEqual(data.manager, { number: 18, url: 'https://github.com/owner/private-repo/issues/18',
+    updatedAt: '2026-10-29T22:00:00Z' });
+});
+
 test('a GitHub failure is published as an error code with no stale task data', async () => {
   const { fetchImpl } = fakeGitHub({ '/issues': new Error('401') });
   const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
