@@ -81,10 +81,15 @@
 
   function renderOwner(issues) {
     const waiting = issues.filter(needsOwner);
-    $('owner').replaceChildren(...(waiting.length ? waiting.map(issue => el('article', { className: 'card owner' }, [
-      el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
-      title(issue), nextLine(issue),
-    ])) : [el('p', { className: 'empty', text: 'אין החלטות שמחכות לך.' })]));
+    $('owner').replaceChildren(...(waiting.length ? waiting.map(issue => {
+      // Jump straight to the comment box; the CEO acts on a comment that starts with "החלטה:".
+      const link = githubLink(issue.url);
+      return el('article', { className: 'card owner' }, [
+        el('div', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
+        title(issue), nextLine(issue),
+        link ? el('a', { className: 'answer', text: 'לענות', href: `${link}#new_comment_field` }) : null,
+      ]);
+    }) : [el('p', { className: 'empty', text: 'אין החלטות שמחכות לך.' })]));
     return waiting.length;
   }
 

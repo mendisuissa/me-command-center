@@ -68,6 +68,9 @@ input[type=password]{min-height:48px;width:100%;padding:.6rem .8rem;border:1px s
 .chip.owner{color:#1b1300;background:var(--warn);border-color:var(--warn)}
 .card.owner{border-color:var(--warn)}
 .card.owner .next{border-color:var(--warn)}
+.card .answer{justify-self:start;display:inline-flex;align-items:center;min-height:44px;padding:.5rem 1.2rem;border-radius:10px;background:var(--warn);color:#1b1300;font-weight:800;text-decoration:none}
+.card .answer:hover,.card .answer:focus-visible{background:#ffd77a;outline:2px solid #fff;outline-offset:2px}
+.hint{color:var(--muted);line-height:1.6;margin:-.3rem 0 .8rem;font-size:.9rem}
 .card.stale{border-color:var(--warn)}
 .card.stale .meta{color:var(--warn)}
 
