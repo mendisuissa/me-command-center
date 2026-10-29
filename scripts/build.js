@@ -27,7 +27,7 @@ async function main(env = process.env) {
   if (!env.CC_SOURCE_TOKEN) fail('CC_SOURCE_TOKEN_MISSING');
   if (!env.CC_SOURCE_REPO) fail('CC_SOURCE_REPO_MISSING');
 
-  const data = await collect({ token: env.CC_SOURCE_TOKEN, repo: env.CC_SOURCE_REPO.trim() });
+  const data = await collect({ token: env.CC_SOURCE_TOKEN.trim(), repo: env.CC_SOURCE_REPO.trim() });
   const envelope = await vault.seal(await vault.deriveKey(passphrase), data);
   const serialized = JSON.stringify(envelope);
   assertNoPlaintext(serialized, data);

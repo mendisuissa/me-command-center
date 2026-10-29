@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test
-        run: node --test test/
+        run: node --test 'test/*.test.js'
       # This repository is public, and so are its logs: build.js prints status codes only.
       - name: Collect and encrypt
         env:

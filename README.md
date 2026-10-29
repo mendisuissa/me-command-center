@@ -29,5 +29,5 @@ The browser decrypts locally after the passphrase is entered. Without the passph
 ## Tests
 
 ```sh
-node --test test/
+node --test 'test/*.test.js'
 ```
