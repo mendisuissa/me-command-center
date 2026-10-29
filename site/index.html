@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="dark">
+  <title>מרכז שליטה</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div><p class="eyebrow">MODERN ENDPOINT</p><h1>מרכז שליטה</h1></div>
+    <div class="actions" id="actions" hidden>
+      <button id="refresh" type="button">רענון</button>
+      <button id="lock" type="button" class="quiet">נעילה</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="locked" class="lock" aria-labelledby="lock-title">
+      <h2 id="lock-title">הדשבורד נעול</h2>
+      <p>הנתונים מוצפנים. הקלד את הסיסמה כדי לפתוח אותם במכשיר הזה.</p>
+      <form id="unlock" novalidate>
+        <input type="text" name="username" autocomplete="username" value="command-center" class="visually-hidden" tabindex="-1" aria-hidden="true">
+        <label for="passphrase">סיסמה</label>
+        <input id="passphrase" name="password" type="password" autocomplete="current-password" required dir="ltr" spellcheck="false">
+        <label class="check"><input id="remember" type="checkbox"> לזכור במכשיר הזה</label>
+        <button id="unlock-button" type="submit">פתיחה</button>
+        <p id="lock-status" role="status"></p>
+      </form>
+    </section>
+
+    <div id="dashboard" hidden>
+      <div id="banners"></div>
+      <section class="summary" aria-label="סיכום">
+        <article><span>משימות פתוחות</span><strong id="issue-count">—</strong></article>
+        <article><span>PR פתוחים</span><strong id="pr-count">—</strong></article>
+        <article id="ci-tile"><span>CI נכשל</span><strong id="ci-count">—</strong></article>
+        <article><span>עדכון אחרון</span><strong id="age">—</strong></article>
+      </section>
+      <section aria-labelledby="tasks-title">
+        <h2 id="tasks-title">משימות פתוחות</h2>
+        <div id="tasks" class="cards"></div>
+      </section>
+      <section aria-labelledby="prs-title">
+        <h2 id="prs-title">Pull Requests</h2>
+        <div id="prs" class="cards"></div>
+      </section>
+      <section id="ci-section" aria-labelledby="ci-title" hidden>
+        <h2 id="ci-title">CI בענף הראשי</h2>
+        <div id="ci" class="cards compact"></div>
+      </section>
+      <footer><p id="generated">—</p><p>מוצפן · קריאה בלבד · מתעדכן אוטומטית כל 30 דקות</p></footer>
+    </div>
+  </main>
+  <script src="vault.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

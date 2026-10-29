@@ -1,0 +1,73 @@
+name: Publish command center
+
+# Only schedule and manual runs: no pull_request trigger, so forks can never reach the secrets.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Test
+        run: node --test test/
+      # This repository is public, and so are its logs: build.js prints status codes only.
+      - name: Collect and encrypt
+        env:
+          CC_SOURCE_TOKEN: ${{ secrets.CC_SOURCE_TOKEN }}
+          CC_SOURCE_REPO: ${{ secrets.CC_SOURCE_REPO }}
+          CC_PASSPHRASE: ${{ secrets.CC_PASSPHRASE }}
+        run: node scripts/build.js
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  # GitHub disables schedules in public repos after 60 days without activity. Deploys add no
+  # commits, so push an empty one when the last commit is more than 40 days old.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Keep the schedule enabled
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 40 * 86400 )) ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit --allow-empty -m 'chore: keep the scheduled refresh enabled'
+            git push
+          fi
