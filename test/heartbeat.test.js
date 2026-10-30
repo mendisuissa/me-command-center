@@ -16,7 +16,10 @@ test('heartbeat refreshes the dashboard and re-dispatches itself from main', () 
   assert.match(steps[2], /gh workflow run heartbeat\.yml --ref main/);
   // A single failed dispatch must not end the chain.
   for (const step of [steps[0], steps[2]]) assert.match(step, /for i in .+; do .+ && exit 0; sleep \d+; done; exit 1/);
-  assert.match(workflow, /if: always\(\)\n\s+run: .*heartbeat\.yml/);
+  // A failed refresh must still wait before the next tick (no hot loop), and a cancel must stop the chain.
+  assert.doesNotMatch(workflow, /always\(\)/);
+  assert.match(workflow, /if: success\(\) \|\| failure\(\)\n\s+run: sleep \d+/);
+  assert.match(workflow, /if: success\(\) \|\| failure\(\)\n\s+run: .*heartbeat\.yml/);
 });
 
 test('heartbeat keeps the data under 75 minutes old and runs a single chain', () => {
