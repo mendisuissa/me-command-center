@@ -1,0 +1,34 @@
+name: Refresh heartbeat
+
+# GitHub drops scheduled runs under load: publish.yml's half-hourly cron has gone 4 hours
+# without firing. Manual dispatches start reliably, so this workflow dispatches publish.yml,
+# waits, and then dispatches itself. Its own cron only restarts the chain if a link breaks.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */2 * * *'
+
+permissions: {}
+
+# Exactly one chain: a restart from the cron replaces a chain that is still waiting.
+concurrency:
+  group: heartbeat
+  cancel-in-progress: true
+
+jobs:
+  tick:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Refresh the dashboard
+        run: gh workflow run publish.yml --ref main
+      - name: Wait for the next slot
+        run: sleep 1680
+      - name: Schedule the next tick
+        run: gh workflow run heartbeat.yml --ref main
