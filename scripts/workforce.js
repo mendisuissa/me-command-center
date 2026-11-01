@@ -16,6 +16,9 @@ const SEVERITY = Object.fromEntries(VERDICTS.map((verdict, index) => [verdict, i
 // kept as "chatgpt" so a FAIL from them still blocks, but they get no row of their own.
 const WORKERS = [
   { key: 'ceo', name: 'CEO' },
+  // The CEO's event router (KillWindowsApp-Mvp AGENTS.md, "The Dispatcher"). Each result ends with
+  // an explicit "Verdict:" line and names the owner of the next step.
+  { key: 'dispatcher', name: 'Dispatcher' },
   { key: 'claude', name: 'Claude builders' },
   { key: 'codex', name: 'Codex' },
   { key: 'chatgpt-finops', name: 'ChatGPT Finance/Ops' },
@@ -43,9 +46,9 @@ function visibleLines(body) {
   return lines;
 }
 
-// `**[CEO]**`, `**[Claude]**`, `**[Codex]**`, `[Codex …]`, `[ChatGPT …]` (bold optional for the last two).
+// `**[CEO]**`, `**[Claude]**`, `**[Dispatcher]**`, `**[Codex]**`, `[Codex …]`, `[ChatGPT …]` (bold optional for the last two).
 function signatureOf(line) {
-  let match = line.match(/^\*\*\[(CEO|Claude|Codex)\]\*\*/);
+  let match = line.match(/^\*\*\[(CEO|Claude|Dispatcher|Codex)\]\*\*/);
   if (match) return { key: match[1].toLowerCase(), signature: match[0] };
   match = line.match(/^(\*\*)?\[(Codex|ChatGPT)((?:[ :/–-][^\]\n]{0,60})?)\]\1/);
   if (!match) return null;

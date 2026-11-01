@@ -9,7 +9,7 @@
   const STALE_MINUTES = 75;
   const KNOWN = new Set(['PASS', 'FAIL', 'UNVERIFIED']);
   const TONE = { PASS: 'ok', FAIL: 'bad', UNVERIFIED: 'warn', STALE: 'warn' };
-  const NAMES = { ceo: 'CEO', claude: 'Claude', codex: 'Codex', 'chatgpt-finops': 'ChatGPT Finance/Ops',
+  const NAMES = { ceo: 'CEO', dispatcher: 'Dispatcher', claude: 'Claude', codex: 'Codex', 'chatgpt-finops': 'ChatGPT Finance/Ops',
     'chatgpt-security': 'ChatGPT Security', chatgpt: 'ChatGPT' };
   const githubLink = value => (typeof value === 'string' && value.startsWith('https://github.com/') ? value : null);
 
