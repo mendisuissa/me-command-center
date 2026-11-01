@@ -50,6 +50,18 @@
       </section>
       <div id="banners"></div>
 
+      <section id="blockers-strip" class="strip" aria-labelledby="blockers-title">
+        <div class="strip-head"><h2 id="blockers-title">חסמים קריטיים</h2><span id="blockers-count" class="count"></span></div>
+        <div id="blockers" class="strip-items"></div>
+      </section>
+
+      <section class="panel workforce-panel" aria-labelledby="workforce-title">
+        <div class="panel-head"><h2 id="workforce-title">צוות העבודה</h2><span id="workforce-age" class="count"></span></div>
+        <p class="hint">הדוח החתום האחרון של כל עובד מ-7 הימים האחרונים, והציון שלו. ריצות חוזרות זהות מוצגות פעם אחת.</p>
+        <div id="workforce-note"></div>
+        <div id="workforce" class="workers"></div>
+      </section>
+
       <div class="layout">
         <div class="col">
           <section class="panel" aria-labelledby="owner-title">
@@ -91,6 +103,7 @@
     </div>
   </main>
   <script src="vault.js"></script>
+  <script src="workforce-view.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 'use strict';
 
 const { nextActionFromBody } = require('./next-action');
+const { collectWorkforce } = require('./workforce');
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
@@ -84,7 +85,7 @@ function summarizeRuns(runs) {
 async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
   const generatedAt = new Date(now()).toISOString();
   const read = createGitHubReader({ token, repo, fetchImpl });
-  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null, manager: null };
+  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null, manager: null, workforce: null };
   try {
     const [meta, issues, pulls] = await Promise.all([
       read(''),
@@ -117,11 +118,21 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     const runs = await read(`/actions/runs?branch=${encodeURIComponent(branch)}&per_page=50`);
     result.mainBranch = { name: branch, ...summarizeRuns(runs?.workflow_runs) };
     result.sources.push({ name: 'github', ok: true, fetchedAt: generatedAt });
+    // Its own source: a failure here is shown in the Workforce panel and never hides the tasks.
+    try {
+      result.workforce = await collectWorkforce(read, { issues, pulls, report, now: now() });
+      result.sources.push({ name: 'workforce', ok: true, fetchedAt: generatedAt });
+    } catch (error) {
+      result.workforce = null;
+      result.sources.push({ name: 'workforce', ok: false, fetchedAt: generatedAt,
+        error: /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'WORKFORCE_COLLECTION_FAILED' });
+    }
   } catch (error) {
     // Publish the failure itself (encrypted) instead of stale numbers presented as current.
-    result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null;
-    result.sources.push({ name: 'github', ok: false, fetchedAt: generatedAt,
-      error: /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'GITHUB_COLLECTION_FAILED' });
+    result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null; result.workforce = null;
+    result.sources = [{ name: 'github', ok: false, fetchedAt: generatedAt,
+      error: /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'GITHUB_COLLECTION_FAILED' },
+    { name: 'workforce', ok: false, fetchedAt: generatedAt, error: 'GITHUB_UNAVAILABLE' }];
   }
   return result;
 }

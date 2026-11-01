@@ -35,6 +35,7 @@
     const node = document.createElement(tag);
     if (props?.className) node.className = props.className;
     if (props?.text != null) node.textContent = props.text;
+    if (props?.dir) node.dir = props.dir;
     if (props?.href) { node.href = props.href; node.target = '_blank'; node.rel = 'noopener noreferrer'; }
     for (const child of children || []) if (child) node.append(child);
     return node;
@@ -78,22 +79,24 @@
     } catch { throw new Error('DATA_UNAVAILABLE'); }
   }
 
-  function renderVerdict(data, github, waiting, down) {
+  function renderVerdict(data, github, waiting, down, workforce, blockers) {
     const ageMinutes = (Date.now() - Date.parse(data.generatedAt)) / 60000;
     const ceoHours = data.manager ? (Date.now() - Date.parse(data.manager.updatedAt)) / 3600000 : Infinity;
     let state = 'ok';
     let text = 'הכל עובד. אין שום דבר שמחכה לך.';
     if (!github?.ok) { state = 'bad'; text = 'לא הצלחתי לקרוא את GitHub בעדכון האחרון'; }
     else if (down.length) { state = 'bad'; text = down.length === 1 ? `${down[0]} לא עונה` : `${down.length} מערכות לא עונות: ${down.join(', ')}`; }
+    else if (blockers) { state = 'bad'; text = blockers === 1 ? 'חסם קריטי אחד: בודק סימן FAIL' : `${blockers} חסמים קריטיים: בודקים סימנו FAIL`; }
     else if (waiting) { state = 'warn'; text = waiting === 1 ? 'החלטה אחת מחכה לך' : `${waiting} החלטות מחכות לך`; }
     else if (!(ageMinutes <= STALE_MINUTES)) { state = 'warn'; text = 'הנתונים לא התעדכנו כבר זמן רב'; }
     else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מ-8 שעות'; }
+    else if (workforce.status === 'failed') { state = 'warn'; text = 'לא הצלחתי לקרוא את דוחות הצוות'; }
     $('verdict').className = `verdict ${state}`;
     $('verdict-text').textContent = text;
 
     const systems = data.fleet?.systems || [];
     const meta = [
-      down.length && waiting ? (waiting === 1 ? 'גם: החלטה אחת מחכה לך' : `גם: ${waiting} החלטות מחכות לך`) : null,
+      (down.length || blockers) && waiting ? (waiting === 1 ? 'גם: החלטה אחת מחכה לך' : `גם: ${waiting} החלטות מחכות לך`) : null,
       systems.length ? `${systems.length - down.length}/${systems.length} מערכות תקינות` : null,
       `${data.issues.length} משימות · ${data.pulls.length} PR`,
       data.manager ? `CEO: ${ago(data.manager.updatedAt)}` : 'CEO: עוד לא דיווח',
@@ -211,6 +214,67 @@
     }));
   }
 
+  const KIND = { pull: 'PR', issue: 'משימה' };
+  const verdictChip = (text, tone) => el('span', { className: `verdict-chip ${tone}`, text });
+
+  // The strip answers one question: is anything open that a reviewer failed? Unknown is never "clear".
+  function renderBlockers(view) {
+    const strip = $('blockers-strip');
+    const items = view.blockers.items;
+    $('blockers-count').textContent = items.length ? `${items.length}` : '';
+    let tone = '';
+    let content;
+    if (view.status === 'failed') {
+      tone = 'bad';
+      content = [el('p', { className: 'strip-msg', text: `לא ידוע אם יש חסמים: קריאת דוחות הצוות נכשלה (${view.error}).` })];
+    } else if (items.length) {
+      tone = 'bad';
+      content = items.map(item => el('article', { className: 'blocker' }, [
+        el('div', { className: 'line' }, [el('span', { className: 'num', text: `#${item.number}` }),
+          el('p', { className: 'title' }, [linkOrText(item.title || `${KIND[item.kind] || ''} #${item.number}`, item.url)])]),
+        el('div', { className: 'chips' }, [
+          el('span', { className: 'chip', text: KIND[item.kind] || item.kind }),
+          item.priority ? el('span', { className: 'chip p0', text: item.priority }) : null,
+          ...item.failing.map(fail => el(githubLink(fail.url) ? 'a' : 'span',
+            { className: 'chip bad', text: `FAIL · ${fail.worker} · ${ago(fail.at)}`, href: githubLink(fail.url) })),
+        ]),
+        item.failing[0]?.excerpt ? el('p', { className: 'why', text: item.failing[0].excerpt, dir: 'auto' }) : null,
+      ]));
+      if (view.status === 'stale') content.unshift(el('p', { className: 'strip-msg', text: 'הנתונים ישנים: ייתכן שיש חסמים נוספים או שחלק כבר נפתרו.' }));
+    } else if (view.status === 'stale') {
+      tone = 'warn';
+      content = [el('p', { className: 'strip-msg', text: 'הנתונים ישנים, ולכן לא ידוע אם יש חסמים.' })];
+    } else {
+      content = [el('p', { className: 'strip-msg muted', text: 'אין משימה או PR פתוחים שהציון האחרון של Codex או ChatGPT עליהם הוא FAIL.' })];
+    }
+    if (view.truncated) content.push(el('p', { className: 'strip-msg muted', text: 'הרשימה חלקית: יש יותר תגובות או PR ממה שנקרא בעדכון אחד.' }));
+    strip.className = `strip ${tone}`;
+    $('blockers').replaceChildren(...content.filter(Boolean));
+    return items.length;
+  }
+
+  function renderWorkforce(view, generatedAt) {
+    $('workforce-age').textContent = view.status === 'failed' ? '' : ago(generatedAt);
+    const notes = [];
+    if (view.status === 'failed') {
+      notes.push(el('p', { className: 'banner bad', text: `קריאת דוחות הצוות נכשלה (${view.error}). אין כאן ציונים עד שהקריאה תצליח.` }));
+    } else if (view.status === 'stale') {
+      notes.push(el('p', { className: 'banner warn', text: `הנתונים נאספו ${ago(generatedAt)}, יותר מ-${window.MeWorkforce.STALE_MINUTES} דקות. כל PASS מוצג כ-STALE עד העדכון הבא.` }));
+    }
+    $('workforce-note').replaceChildren(...notes);
+    $('workforce').replaceChildren(...view.workers.map(worker => el('article', { className: `worker ${worker.tone}` }, [
+      el('div', { className: 'top' }, [el('span', { className: 'name', text: worker.name }), verdictChip(worker.shown, worker.tone)]),
+      worker.at ? el('p', { className: 'when', text: `${ago(worker.at)} · ${when(worker.at)}` }) : null,
+      worker.shown === 'STALE' ? el('p', { className: 'note', text: 'הציון האחרון: PASS (לא עדכני)' }) : null,
+      worker.at && !worker.explicit && worker.verdict === 'UNVERIFIED' ? el('p', { className: 'note', text: 'אין ציון בדוח האחרון' }) : null,
+      worker.excerpt ? el('p', { className: 'excerpt', text: worker.excerpt, dir: 'auto' }) : null,
+      worker.at ? null : el('p', { className: 'note', text: `אין דוח חתום ב-${view.windowDays} הימים האחרונים` }),
+      worker.repeats > 1 ? el('p', { className: 'note', text: `${worker.repeats} ריצות זהות אוחדו` }) : null,
+      worker.url ? el('a', { className: 'evidence', href: worker.url,
+        text: worker.item ? `לראיה ב-${KIND[worker.item.kind] || ''} #${worker.item.number}` : 'לראיה' }) : null,
+    ])));
+  }
+
   function render(data) {
     const github = (data.sources || []).find(source => source.name === 'github');
     const banners = [];
@@ -225,7 +289,10 @@
 
     const down = renderFleet(data.fleet);
     const waiting = renderOwner(data.issues);
-    renderVerdict(data, github, waiting, down);
+    const workforce = window.MeWorkforce.buildWorkforceView(data, Date.now());
+    const blockers = renderBlockers(workforce);
+    renderWorkforce(workforce, data.generatedAt);
+    renderVerdict(data, github, waiting, down, workforce, blockers);
     renderCeo(github?.ok ? data.manager : null);
     renderTasks(data.issues);
     renderPulls(data.pulls);
@@ -259,7 +326,7 @@
   async function lock() {
     key = null;
     await forgetKey();
-    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta'].forEach(id => $(id).replaceChildren());
+    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta', 'blockers', 'workforce', 'workforce-note'].forEach(id => $(id).replaceChildren());
     show(false);
     setStatus('');
     $('passphrase').focus();
