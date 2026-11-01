@@ -9,6 +9,7 @@ const WORKFORCE_DAYS = 7;       // the Workforce view shows the last week
 const BLOCKER_DAYS = 90;        // a reviewer FAIL keeps blocking until a later verdict replaces it
 const MAX_COMMENT_PAGES = 10;
 const MAX_PULLS_WITH_REVIEWS = 30;
+const MAX_REVIEW_PAGES = 5;
 const VERDICTS = ['FAIL', 'UNVERIFIED', 'PASS'];        // most severe first
 const SEVERITY = Object.fromEntries(VERDICTS.map((verdict, index) => [verdict, index]));
 
@@ -161,6 +162,19 @@ async function readRecentComments(read, sinceIso) {
   return { comments, truncated: true };
 }
 
+// Reviews are listed oldest first, so the newest verdicts are on the last page: read every page up to
+// the cap, and report `truncated` (never a silently partial history) when the cap is reached.
+async function readReviews(read, number) {
+  const reviews = [];
+  for (let page = 1; page <= MAX_REVIEW_PAGES; page += 1) {
+    const batch = await read(`/pulls/${Number(number)}/reviews?per_page=100&page=${page}`);
+    if (!Array.isArray(batch)) throw new Error('GITHUB_RESPONSE_INVALID');
+    reviews.push(...batch);
+    if (batch.length < 100) return { reviews, truncated: false };
+  }
+  return { reviews, truncated: true };
+}
+
 // `issues` and `pulls` are the raw open lists the main collection already read; `report` is the CEO issue.
 async function collectWorkforce(read, { issues, pulls, report, now = Date.now() }) {
   const labelsOf = item => (item.labels || []).map(label => String(label.name || ''));
@@ -174,19 +188,18 @@ async function collectWorkforce(read, { issues, pulls, report, now = Date.now() 
   const pullsWithReviews = pulls.slice(0, MAX_PULLS_WITH_REVIEWS);
   const [{ comments, truncated }, reviews] = await Promise.all([
     readRecentComments(read, since),
-    Promise.all(pullsWithReviews.map(pull => read(`/pulls/${Number(pull.number)}/reviews?per_page=100`))),
+    Promise.all(pullsWithReviews.map(pull => readReviews(read, pull.number))),
   ]);
   const events = comments.map(comment => toEvent('comment', { id: comment.id, body: comment.body,
     at: comment.updated_at || comment.created_at, url: comment.html_url, issueUrl: comment.issue_url, author: comment.user?.login }, openItems));
-  reviews.forEach((list, index) => {
-    if (!Array.isArray(list)) throw new Error('GITHUB_RESPONSE_INVALID');
+  reviews.forEach(({ reviews: list }, index) => {
     const pull = pullsWithReviews[index];
     for (const review of list) events.push(toEvent('review', { id: review.id, body: review.body, at: review.submitted_at,
       url: review.html_url, issueUrl: `/pulls/${pull.number}`, author: review.user?.login }, openItems));
   });
   if (report) events.push(toEvent('report', { id: report.number, body: report.body, at: report.updated_at,
     url: report.html_url, issueUrl: report.html_url, author: report.user?.login }, openItems));
-  return summarizeWorkforce(events, { now, openItems, truncated: truncated || pulls.length > MAX_PULLS_WITH_REVIEWS });
+  return summarizeWorkforce(events, { now, openItems, truncated: truncated || pulls.length > MAX_PULLS_WITH_REVIEWS || reviews.some(result => result.truncated) });
 }
 
 module.exports = { parseSignedComment, summarizeWorkforce, collectWorkforce, dedupe, toEvent,

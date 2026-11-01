@@ -69,7 +69,10 @@ function fixtureReader(fixture, { fail } = {}) {
       return page === 1 ? fixture.comments : [];
     }
     const review = path.match(/^\/pulls\/(\d+)\/reviews/);
-    if (review) return fixture.reviews[review[1]] || [];
+    if (review) {
+      const page = Number(new URLSearchParams(path.split('?')[1]).get('page')) || 1;
+      return (fixture.reviews[review[1]] || []).slice((page - 1) * 100, page * 100);
+    }
     throw new Error('GITHUB_HTTP_404');
   };
   return { read, calls };

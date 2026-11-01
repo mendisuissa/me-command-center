@@ -5,6 +5,16 @@ const { parseSignedComment, collectWorkforce, summarizeWorkforce, dedupe } = req
 const { buildWorkforceView, STALE_MINUTES } = require('../site/workforce-view');
 const { workforceFixture, fixtureReader } = require('./fixtures/workforce');
 
+const review = (id, minutes, body) => ({ id, body, submitted_at: new Date(NOW - minutes * 60000).toISOString(),
+  html_url: `https://github.com/owner/private-repo/pull/40#pullrequestreview-${id}`, user: { login: 'codex-bot' } });
+async function workforceWithReviews(reviews40) {
+  const fixture = workforceFixture(NOW);
+  fixture.reviews[40] = reviews40;
+  const { read, calls } = fixtureReader(fixture);
+  const workforce = await collectWorkforce(read, { issues: fixture.issues, pulls: fixture.pulls, now: NOW });
+  return { workforce, calls };
+}
+
 const NOW = Date.parse('2026-11-01T18:00:00Z');
 
 async function fixtureWorkforce(options) {
@@ -126,4 +136,18 @@ test('view: a failed or missing source shows the error and no verdicts at all', 
 
 test('collection: a reviews failure fails the workforce source closed', async () => {
   await assert.rejects(fixtureWorkforce({ fail: /\/pulls\/49\/reviews/ }), /GITHUB_HTTP_500/);
+});
+
+test('reviews are paginated: the newest verdict on a later page decides, and a capped history is flagged', async () => {
+  // 150 reviews, oldest first: page 1 holds old PASSes, page 2 ends with the newest FAIL.
+  const many = Array.from({ length: 149 }, (_, i) => review(9000 + i, 3000 - i, '[Codex review] Verdict: PASS #' + i));
+  many.push(review(9999, 5, '[Codex review] Regression found. Verdict: FAIL'));
+  const { workforce, calls } = await workforceWithReviews(many);
+  assert.ok(calls.includes('/pulls/40/reviews?per_page=100&page=2'));
+  assert.ok(workforce.blockers.some(blocker => blocker.number === 40), 'the FAIL on page 2 blocks');
+  assert.equal(workforce.truncated, false);
+
+  const capped = Array.from({ length: 500 }, (_, i) => review(20000 + i, 6000 - i, '[Codex review] Verdict: PASS #' + i));
+  const { workforce: partial } = await workforceWithReviews(capped);
+  assert.equal(partial.truncated, true, 'a review history cut at the page cap is reported as incomplete');
 });
