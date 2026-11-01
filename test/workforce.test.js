@@ -20,6 +20,7 @@ const dataWith = (workforce, minutesOld, source = { name: 'workforce', ok: true 
 test('parser recognises every worker signature', () => {
   const cases = [
     ['**[CEO]** run report', 'ceo'], ['**[Claude]** built it', 'claude'], ['**[Codex]** Verdict: PASS', 'codex'],
+    ['**[Dispatcher]** **Done** · next step: CEO. Merged #57\n\nVerdict: PASS', 'dispatcher'],
     ['[Codex review] FAIL', 'codex'], ['**[Codex review]** FAIL', 'codex'],
     ['[ChatGPT Security] Verdict: FAIL', 'chatgpt-security'], ['**[ChatGPT Finance/Ops]** PASS', 'chatgpt-finops'],
     ['[ChatGPT Ops] PASS', 'chatgpt-finops'], ['[ChatGPT] PASS', 'chatgpt'],
@@ -61,7 +62,7 @@ test('Workforce view: latest signed report per worker over 7 days, with evidence
   const { workforce, calls } = await fixtureWorkforce();
   assert.ok(calls.some(path => path.startsWith('/issues/comments?sort=updated&direction=desc&since=')));
   const byKey = Object.fromEntries(workforce.workers.map(worker => [worker.key, worker]));
-  assert.deepEqual(workforce.workers.map(worker => worker.key), ['ceo', 'claude', 'codex', 'chatgpt-finops', 'chatgpt-security']);
+  assert.deepEqual(workforce.workers.map(worker => worker.key), ['ceo', 'dispatcher', 'claude', 'codex', 'chatgpt-finops', 'chatgpt-security']);
   assert.equal(byKey.ceo.latest.verdict, 'PASS');
   assert.equal(byKey.ceo.latest.repeats, 3, 'three identical heartbeat runs collapse into one');
   assert.match(byKey.ceo.latest.url, /issuecomment-1001$/);
@@ -90,7 +91,7 @@ test('view: fresh data shows verdicts; a worker with no report is UNVERIFIED, no
   const view = buildWorkforceView(dataWith(workforce, 10), NOW);
   assert.equal(view.status, 'fresh');
   const shown = Object.fromEntries(view.workers.map(worker => [worker.key, worker.shown]));
-  assert.deepEqual(shown, { ceo: 'PASS', claude: 'UNVERIFIED', codex: 'PASS', 'chatgpt-finops': 'UNVERIFIED', 'chatgpt-security': 'FAIL' });
+  assert.deepEqual(shown, { ceo: 'PASS', dispatcher: 'UNVERIFIED', claude: 'UNVERIFIED', codex: 'PASS', 'chatgpt-finops': 'UNVERIFIED', 'chatgpt-security': 'FAIL' });
   assert.equal(view.blockers.status, 'blocked');
   assert.equal(view.blockers.items.length, 4);
 });
