@@ -151,3 +151,39 @@ test('reviews are paginated: the newest verdict on a later page decides, and a c
   const { workforce: partial } = await workforceWithReviews(capped);
   assert.equal(partial.truncated, true, 'a review history cut at the page cap is reported as incomplete');
 });
+
+test('indented code is not a signature or a verdict; list continuations still count', () => {
+  for (const body of ['    **[Codex]** Verdict: PASS', '\t**[Codex]** Verdict: PASS',
+    '**[Claude]** example:\n\n    **[Codex]** Verdict: PASS']) {
+    const parsed = parseSignedComment(body);
+    assert.ok(parsed === null || parsed.worker === 'claude', JSON.stringify(body));
+    if (parsed) assert.equal(parsed.verdict, 'UNVERIFIED');
+  }
+  // An indented example in the middle does not override the real verdict line.
+  assert.equal(parseSignedComment('**[Codex]** Verdict: FAIL\n\nExample:\n\n    Verdict: PASS\n    PASS').verdict, 'FAIL');
+  assert.equal(parseSignedComment('**[Codex]** Checks:\n\n    Verdict: FAIL\n\nnothing else').verdict, 'UNVERIFIED');
+  // Indentation inside a list item is the item's text, not code.
+  assert.equal(parseSignedComment('**[Codex]** Findings:\n- binding\n    FAIL: digest not bound').verdict, 'FAIL');
+  // A paragraph continuation line indented by four spaces is not code either.
+  assert.equal(parseSignedComment('**[Codex]** Summary line\n    FAIL on binding').verdict, 'FAIL');
+});
+
+test('a review history cut at the cap is incomplete: PASS is UNVERIFIED and no blockers means unknown', async () => {
+  const capped = Array.from({ length: 500 }, (_, i) => review(20000 + i, 6000 - i, '[Codex review] Verdict: PASS #' + i));
+  const fixture = workforceFixture(NOW);
+  fixture.reviews[40] = capped;
+  fixture.comments = fixture.comments.filter(comment => !/Codex|ChatGPT/.test(comment.body));
+  for (const number of [49]) fixture.reviews[number] = [];
+  const { read } = fixtureReader(fixture);
+  const workforce = await collectWorkforce(read, { issues: fixture.issues, pulls: fixture.pulls, now: NOW });
+  assert.equal(workforce.truncated, true);
+  assert.deepEqual(workforce.blockers, []);
+  const view = buildWorkforceView(dataWith(workforce, 5), NOW);
+  assert.equal(view.status, 'fresh');
+  assert.equal(view.blockers.status, 'unknown', 'never "clear" on a partial history');
+  const codex = view.workers.find(worker => worker.key === 'codex');
+  assert.deepEqual([codex.verdict, codex.shown], ['PASS', 'UNVERIFIED']);
+  // Known failures are kept.
+  const failing = buildWorkforceView(dataWith({ ...workforce, blockers: [{ number: 49, kind: 'pull', title: 't', failing: [] }] }, 5), NOW);
+  assert.equal(failing.blockers.status, 'blocked');
+});

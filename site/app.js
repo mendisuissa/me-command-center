@@ -91,6 +91,7 @@
     else if (!(ageMinutes <= STALE_MINUTES)) { state = 'warn'; text = 'הנתונים לא התעדכנו כבר זמן רב'; }
     else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מ-8 שעות'; }
     else if (workforce.status === 'failed') { state = 'warn'; text = 'לא הצלחתי לקרוא את דוחות הצוות'; }
+    else if (workforce.blockers.status === 'unknown') { state = 'warn'; text = 'לא ידוע אם יש חסמים קריטיים'; }
     $('verdict').className = `verdict ${state}`;
     $('verdict-text').textContent = text;
 
@@ -241,9 +242,11 @@
         item.failing[0]?.excerpt ? el('p', { className: 'why', text: item.failing[0].excerpt, dir: 'auto' }) : null,
       ]));
       if (view.status === 'stale') content.unshift(el('p', { className: 'strip-msg', text: 'הנתונים ישנים: ייתכן שיש חסמים נוספים או שחלק כבר נפתרו.' }));
-    } else if (view.status === 'stale') {
+    } else if (view.blockers.status === 'unknown') {
       tone = 'warn';
-      content = [el('p', { className: 'strip-msg', text: 'הנתונים ישנים, ולכן לא ידוע אם יש חסמים.' })];
+      content = [el('p', { className: 'strip-msg', text: view.status === 'stale'
+        ? 'הנתונים ישנים, ולכן לא ידוע אם יש חסמים.'
+        : 'היסטוריית הדוחות נקראה רק בחלקה, ולכן לא ידוע אם יש חסמים.' })];
     } else {
       content = [el('p', { className: 'strip-msg muted', text: 'אין משימה או PR פתוחים שהציון האחרון של Codex או ChatGPT עליהם הוא FAIL.' })];
     }
@@ -266,6 +269,7 @@
       el('div', { className: 'top' }, [el('span', { className: 'name', text: worker.name }), verdictChip(worker.shown, worker.tone)]),
       worker.at ? el('p', { className: 'when', text: `${ago(worker.at)} · ${when(worker.at)}` }) : null,
       worker.shown === 'STALE' ? el('p', { className: 'note', text: 'הציון האחרון: PASS (לא עדכני)' }) : null,
+      worker.verdict === 'PASS' && worker.shown === 'UNVERIFIED' ? el('p', { className: 'note', text: 'הציון האחרון: PASS, אבל ההיסטוריה נקראה רק בחלקה' }) : null,
       worker.at && !worker.explicit && worker.verdict === 'UNVERIFIED' ? el('p', { className: 'note', text: 'אין ציון בדוח האחרון' }) : null,
       worker.excerpt ? el('p', { className: 'excerpt', text: worker.excerpt, dir: 'auto' }) : null,
       worker.at ? null : el('p', { className: 'note', text: `אין דוח חתום ב-${view.windowDays} הימים האחרונים` }),

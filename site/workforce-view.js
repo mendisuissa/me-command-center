@@ -4,6 +4,8 @@
 // browser and the tests. Fail-visible rules:
 // - a failed or missing workforce source shows an error and no verdicts at all;
 // - data older than STALE_MINUTES shows every PASS as STALE (a FAIL stays FAIL);
+// - a history cut at a page cap shows every PASS as UNVERIFIED (a later FAIL may be missing) and
+//   never reports "no blockers";
 // - a worker with no signed report in the window is UNVERIFIED; nothing is PASS by default.
 (function (root) {
   const STALE_MINUTES = 75;
@@ -24,9 +26,9 @@
     return { status: 'fresh', error: null, ageMinutes };
   }
 
-  function display(verdict, stale) {
+  function display(verdict, stale, partial) {
     const known = KNOWN.has(verdict) ? verdict : 'UNVERIFIED';
-    const shown = stale && known === 'PASS' ? 'STALE' : known;
+    const shown = known !== 'PASS' ? known : stale ? 'STALE' : partial ? 'UNVERIFIED' : 'PASS';
     return { verdict: known, shown, tone: TONE[shown] };
   }
 
@@ -37,9 +39,10 @@
     }
     const stale = fresh.status === 'stale';
     const workforce = data.workforce;
+    const partial = Boolean(workforce.truncated);
     const workers = (workforce.workers || []).map(worker => {
       const latest = worker.latest;
-      const shownVerdict = display(latest ? latest.verdict : 'UNVERIFIED', stale);
+      const shownVerdict = display(latest ? latest.verdict : 'UNVERIFIED', stale, partial);
       return {
         key: worker.key, name: String(worker.name || NAMES[worker.key] || worker.key),
         ...shownVerdict,
@@ -56,8 +59,8 @@
         url: githubLink(fail.url), excerpt: fail.excerpt || '' })),
     }));
     return { ...fresh, windowDays: workforce.windowDays || 7, blockerWindowDays: workforce.blockerWindowDays || null,
-      truncated: Boolean(workforce.truncated), workers,
-      blockers: { status: items.length ? 'blocked' : stale ? 'unknown' : 'clear', items } };
+      truncated: partial, workers,
+      blockers: { status: items.length ? 'blocked' : stale || partial ? 'unknown' : 'clear', items } };
   }
 
   const api = Object.freeze({ STALE_MINUTES, buildWorkforceView });

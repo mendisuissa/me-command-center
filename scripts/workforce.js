@@ -27,17 +27,31 @@ const REVIEWERS = new Set(['codex', 'chatgpt-finops', 'chatgpt-security', 'chatg
 const safeUrl = value => (typeof value === 'string' && value.startsWith('https://github.com/') ? value : null);
 const timeOf = value => { const ms = Date.parse(value); return Number.isFinite(ms) ? ms : NaN; };
 
-// Visible text only: no fenced or inline code, no quoted lines, no HTML comments. A worker quoting
-// another worker's signature or verdict must not count as that worker's own report.
+// Visible text only: no fenced, indented or inline code, no quoted lines, no HTML comments. A worker
+// quoting another worker's signature or verdict must not count as that worker's own report.
+const INDENTED = /^(?: {4}|\t| {1,3}\t)/;
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 function visibleLines(body) {
   const lines = [];
   let fence = null;
+  let indentedCode = false;
+  let previousBlank = true;     // the start of the comment counts as a blank line
+  let inList = false;           // indented lines after a list item continue the item, not code
   const text = String(body || '').slice(0, 20_000).replace(/<!--[\s\S]*?(?:-->|$)/g, '');
   for (const raw of text.split(/\r?\n/)) {
+    const blank = !raw.trim();
+    if (indentedCode) {
+      if (blank || INDENTED.test(raw)) { previousBlank = blank; continue; }
+      indentedCode = false;
+    }
     const marker = raw.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fence) { if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null; continue; }
-    if (marker) { fence = marker[1]; continue; }
-    if (/^ {0,3}>/.test(raw)) continue;
+    if (marker) { fence = marker[1]; previousBlank = false; continue; }
+    // An indented code block starts after a blank line and outside a list (CommonMark).
+    if (!blank && INDENTED.test(raw) && previousBlank && !inList) { indentedCode = true; previousBlank = false; continue; }
+    if (!blank) inList = LIST_ITEM.test(raw) || (inList && (INDENTED.test(raw) || /^\s/.test(raw)));
+    previousBlank = blank;
+    if (blank || /^ {0,3}>/.test(raw)) continue;
     const line = raw.replace(/`[^`\n]*`/g, ' ').trim();
     if (line) lines.push(line);
   }
