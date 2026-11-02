@@ -43,7 +43,8 @@ function fakeGitHub(overrides = {}) {
 test('collects issues, PR CI and main-branch CI with read-only authenticated GETs', async () => {
   const { fetchImpl, calls } = fakeGitHub();
   const data = await collect({ token: TOKEN, repo: REPO, fetchImpl, now: () => Date.parse('2026-10-29T12:00:00Z') });
-  assert.deepEqual(data.sources, [{ name: 'github', ok: true, fetchedAt: '2026-10-29T12:00:00.000Z' }]);
+  assert.deepEqual(data.sources, [{ name: 'github', ok: true, fetchedAt: '2026-10-29T12:00:00.000Z' },
+    { name: 'workforce', ok: true, fetchedAt: '2026-10-29T12:00:00.000Z' }]);
   assert.equal(data.issues.length, 1);
   assert.equal(data.issues[0].priority, 'P1');
   assert.equal(data.issues[0].nextAction, 'Approve the staging budget');
@@ -76,7 +77,33 @@ test('a GitHub failure is published as an error code with no stale task data', a
   const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
   assert.equal(data.sources[0].ok, false);
   assert.equal(data.sources[0].error, 'GITHUB_HTTP_401');
-  assert.deepEqual([data.issues, data.pulls, data.mainBranch], [[], [], null]);
+  assert.deepEqual([data.issues, data.pulls, data.mainBranch, data.workforce], [[], [], null, null]);
+  assert.deepEqual(data.sources[1], { name: 'workforce', ok: false, fetchedAt: data.sources[0].fetchedAt, error: 'GITHUB_UNAVAILABLE' });
+});
+
+test('workforce reports are collected from signed comments and reviews; blockers name open items', async () => {
+  const { fetchImpl, calls } = fakeGitHub({
+    '/issues/comments': [{ id: 70, body: '**[Codex]** Verdict: FAIL', updated_at: '2026-10-29T11:30:00Z',
+      html_url: 'https://github.com/owner/private-repo/pull/12#issuecomment-70', issue_url: 'https://api.github.com/repos/owner/private-repo/issues/12' }],
+    '/pulls/12/reviews': [{ id: 80, body: '[ChatGPT Security] Verdict: PASS', submitted_at: '2026-10-29T11:40:00Z',
+      html_url: 'https://github.com/owner/private-repo/pull/12#pullrequestreview-80' }],
+  });
+  const data = await collect({ token: TOKEN, repo: REPO, fetchImpl, now: () => Date.parse('2026-10-29T12:00:00Z') });
+  assert.ok(calls.some(call => call.url.includes('/issues/comments?sort=updated&direction=desc&since=2026-07-31')));
+  assert.equal(data.workforce.workers.find(worker => worker.key === 'codex').latest.verdict, 'FAIL');
+  assert.equal(data.workforce.workers.find(worker => worker.key === 'chatgpt-security').latest.verdict, 'PASS');
+  assert.deepEqual(data.workforce.blockers.map(blocker => [blocker.number, blocker.kind, blocker.title]), [[12, 'pull', 'Auth boundary']]);
+  for (const call of calls) assert.equal(call.init.method, 'GET');
+});
+
+test('a workforce read failure is its own failed source and leaves the tasks intact', async () => {
+  const { fetchImpl } = fakeGitHub({ '/issues/comments': new Error('502') });
+  const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
+  assert.equal(data.sources.find(source => source.name === 'github').ok, true);
+  assert.deepEqual(data.sources.find(source => source.name === 'workforce'),
+    { name: 'workforce', ok: false, fetchedAt: data.generatedAt, error: 'GITHUB_HTTP_502' });
+  assert.equal(data.workforce, null);
+  assert.equal(data.issues.length, 1);
 });
 
 test('pagination fails closed instead of presenting a truncated or duplicated queue', async () => {

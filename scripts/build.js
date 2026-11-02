@@ -18,7 +18,10 @@ function fail(code) {
 
 // A wrong refactor must never ship plaintext: refuse if any title is visible in the output.
 function assertNoPlaintext(serialized, data) {
-  const titles = [...data.issues, ...data.pulls].map(item => item.title).filter(title => title.length >= 6);
+  const workforce = data.workforce || { workers: [], blockers: [] };
+  const titles = [...data.issues, ...data.pulls, ...workforce.blockers].map(item => item.title)
+    .concat(workforce.workers.flatMap(worker => worker.recent.map(event => event.excerpt)))
+    .filter(text => typeof text === 'string' && text.length >= 6);
   if (titles.some(title => serialized.includes(title)) || serialized.includes(data.repo)) fail('PLAINTEXT_IN_OUTPUT');
 }
 
@@ -48,7 +51,8 @@ async function main(env = process.env) {
   fs.writeFileSync(path.join(out, 'data.json'), serialized);
   fs.writeFileSync(path.join(out, '.nojekyll'), '');
   const github = data.sources.find(source => source.name === 'github');
-  console.log(`BUILD_OK github=${github?.ok ? 'OK' : github?.error || 'UNKNOWN'}`);
+  const workforce = data.sources.find(source => source.name === 'workforce');
+  console.log(`BUILD_OK github=${github?.ok ? 'OK' : github?.error || 'UNKNOWN'} workforce=${workforce?.ok ? 'OK' : workforce?.error || 'UNKNOWN'}`);
 }
 
 if (require.main === module) main().catch(() => fail('UNEXPECTED'));
