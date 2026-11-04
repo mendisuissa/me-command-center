@@ -5,6 +5,17 @@ const { nextActionFromBody } = require('./next-action');
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
 const MAX_PULLS_WITH_CI = 30;
+const CI_CONCURRENCY = 4;
+
+// Runs fn over items with at most `limit` in flight, keeping order. Bursts of 30 parallel Actions
+// reads are what trip GitHub's secondary rate limit (HTTP 403).
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); } };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 // Read-only GitHub collection for the encrypted dashboard. Every call is a GET; errors become
 // short codes so nothing from a response or the token can reach the (public) workflow log.
@@ -103,20 +114,29 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
       labels: (item.labels || []).map(label => String(label.name || '')).slice(0, 12),
       updatedAt: item.updated_at || null, nextAction: nextActionFromBody(item.body),
     }));
+    // CI is secondary: a failed Actions read (a 403 secondary rate limit, a missing Actions permission)
+    // marks only that PR or branch as unknown. It must never hide the issues, the owner's questions or
+    // the CEO report, which come from the reads above.
+    const ciErrors = new Set();
+    const ciRead = path => read(path).then(runs => summarizeRuns(runs?.workflow_runs), error => {
+      const code = /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'GITHUB_COLLECTION_FAILED';
+      ciErrors.add(code);
+      return { state: 'unknown', workflows: [], error: code };
+    });
     const pullsWithCi = pulls.slice(0, MAX_PULLS_WITH_CI);
-    const ci = await Promise.all(pullsWithCi.map(pull => read(
-      `/actions/runs?head_sha=${encodeURIComponent(String(pull.head?.sha || ''))}&per_page=50`)));
+    const ci = await mapLimit(pullsWithCi, CI_CONCURRENCY, pull => ciRead(
+      `/actions/runs?head_sha=${encodeURIComponent(String(pull.head?.sha || ''))}&per_page=50`));
     result.pulls = pulls.map((pull, index) => ({
       number: pull.number, title: String(pull.title || '').slice(0, 300), url: safeUrl(pull.html_url),
       draft: Boolean(pull.draft), author: pull.user?.login || null, updatedAt: pull.updated_at || null,
       labels: labelsOf(pull).slice(0, 12),
-      ci: index < pullsWithCi.length ? summarizeRuns(ci[index]?.workflow_runs) : { state: 'unknown', workflows: [] },
+      ci: index < pullsWithCi.length ? ci[index] : { state: 'unknown', workflows: [] },
     }));
     const branch = String(meta?.default_branch || '');
     if (!/^[A-Za-z0-9._/-]{1,100}$/.test(branch)) throw new Error('GITHUB_RESPONSE_INVALID');
-    const runs = await read(`/actions/runs?branch=${encodeURIComponent(branch)}&per_page=50`);
-    result.mainBranch = { name: branch, ...summarizeRuns(runs?.workflow_runs) };
+    result.mainBranch = { name: branch, ...await ciRead(`/actions/runs?branch=${encodeURIComponent(branch)}&per_page=50`) };
     result.sources.push({ name: 'github', ok: true, fetchedAt: generatedAt });
+    if (ciErrors.size) result.sources.push({ name: 'github-ci', ok: false, fetchedAt: generatedAt, error: [...ciErrors].sort().join(',') });
   } catch (error) {
     // Publish the failure itself (encrypted) instead of stale numbers presented as current.
     result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null;
