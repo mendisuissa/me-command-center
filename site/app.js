@@ -78,7 +78,7 @@
     } catch { throw new Error('DATA_UNAVAILABLE'); }
   }
 
-  function renderVerdict(data, github, waiting, down) {
+  function renderVerdict(data, github, waiting, down, ciFailed) {
     const ageMinutes = (Date.now() - Date.parse(data.generatedAt)) / 60000;
     const ceoHours = data.manager ? (Date.now() - Date.parse(data.manager.updatedAt)) / 3600000 : Infinity;
     let state = 'ok';
@@ -87,6 +87,7 @@
     else if (down.length) { state = 'bad'; text = down.length === 1 ? `${down[0]} לא עונה` : `${down.length} מערכות לא עונות: ${down.join(', ')}`; }
     else if (waiting) { state = 'warn'; text = waiting === 1 ? 'החלטה אחת מחכה לך' : `${waiting} החלטות מחכות לך`; }
     else if (!(ageMinutes <= STALE_MINUTES)) { state = 'warn'; text = 'הנתונים לא התעדכנו כבר זמן רב'; }
+    else if (ciFailed) { state = 'warn'; text = 'קריאת ה-CI נכשלה, ולכן מצב ה-CI לא ידוע'; }
     else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מ-8 שעות'; }
     $('verdict').className = `verdict ${state}`;
     $('verdict-text').textContent = text;
@@ -183,7 +184,7 @@
   function renderPulls(pulls) {
     $('prs-count').textContent = `${pulls.length}`;
     $('prs').replaceChildren(...(pulls.length ? pulls.map(pull => {
-      const [tone, label] = STATE[pull.ci.state] || ['', pull.ci.state];
+      const [tone, label] = pull.ci.error ? ['warn', 'קריאה נכשלה'] : STATE[pull.ci.state] || ['', pull.ci.state];
       return el('article', { className: 'row' }, [
         el('div', { className: 'line' }, [el('span', { className: 'num', text: `#${pull.number}` }),
           el('p', { className: 'title' }, [linkOrText(pull.title, pull.url)])]),
@@ -198,7 +199,9 @@
   }
 
   function renderMain(main) {
-    const workflows = main?.workflows || [];
+    const failed = main?.state === 'unknown' && Boolean(main?.error);
+    const workflows = failed ? [{ name: `לא הצלחתי לקרוא את ה-CI (${main.error})`, state: 'unknown', url: null, updatedAt: null }]
+      : main?.workflows || [];
     // The source repo runs CI on pull requests only; an always-empty section would just be noise.
     $('ci-section').hidden = !workflows.length;
     $('ci-title').textContent = main ? `CI בענף ${main.name}` : 'CI בענף הראשי';
@@ -221,11 +224,15 @@
     if (!((Date.now() - Date.parse(data.generatedAt)) / 60000 <= STALE_MINUTES)) {
       banners.push(el('p', { className: 'banner warn', text: `הנתונים נאספו ${ago(data.generatedAt)}. העדכון האוטומטי אמור לרוץ כל 30 דקות, וייתכן שהוא נעצר.` }));
     }
+    const ciSource = (data.sources || []).find(source => source.name === 'github-ci');
+    if (github?.ok && ciSource && !ciSource.ok) {
+      banners.push(el('p', { className: 'banner warn', text: `קריאת ה-CI נכשלה (${ciSource.error || 'UNKNOWN'}). המשימות מוצגות, אבל מצב ה-CI של PR או של הענף הראשי לא ידוע.` }));
+    }
     $('banners').replaceChildren(...banners);
 
     const down = renderFleet(data.fleet);
     const waiting = renderOwner(data.issues);
-    renderVerdict(data, github, waiting, down);
+    renderVerdict(data, github, waiting, down, Boolean(github?.ok && ciSource && !ciSource.ok));
     renderCeo(github?.ok ? data.manager : null);
     renderTasks(data.issues);
     renderPulls(data.pulls);

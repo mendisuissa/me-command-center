@@ -188,7 +188,7 @@ test('PR CI reads run at most 4 at a time and keep PR order', async () => {
     return { ok: true, status: 200, json: async () => routes[key] };
   };
   const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
-  assert.ok(peak <= 4, `peak concurrency ${peak}`);
+  assert.equal(peak, 4, 'the limit is used, not just respected');
   assert.equal(data.pulls[3].ci.state, 'failure');
   assert.equal(data.pulls[2].ci.state, 'none');
 });
