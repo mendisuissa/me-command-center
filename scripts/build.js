@@ -48,7 +48,8 @@ async function main(env = process.env) {
   fs.writeFileSync(path.join(out, 'data.json'), serialized);
   fs.writeFileSync(path.join(out, '.nojekyll'), '');
   const github = data.sources.find(source => source.name === 'github');
-  console.log(`BUILD_OK github=${github?.ok ? 'OK' : github?.error || 'UNKNOWN'}`);
+  const ci = data.sources.find(source => source.name === 'github-ci');
+  console.log(`BUILD_OK github=${github?.ok ? 'OK' : github?.error || 'UNKNOWN'} ci=${ci ? ci.error : 'OK'}`);
 }
 
 if (require.main === module) main().catch(() => fail('UNEXPECTED'));
