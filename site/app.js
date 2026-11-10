@@ -110,8 +110,9 @@
     $('owner-count').textContent = waiting.length ? `${waiting.length}` : '';
     $('owner').replaceChildren(...(waiting.length ? waiting.map(item => {
       const link = githubLink(item.url);
-      const yes = window.Decision.decisionLink(repo, item.number, true);
-      const no = window.Decision.decisionLink(repo, item.number, false);
+      const question = item.nextAction || item.title;
+      const yes = window.Decision.decisionLink(repo, item.number, true, question);
+      const no = window.Decision.decisionLink(repo, item.number, false, question);
       return el('article', { className: 'decision' }, [
         el('p', { className: 'meta' }, [el('span', { text: `#${item.number}` }), el('span', { text: `עודכן ${ago(item.updatedAt)}` })]),
         el('p', { className: 'question', text: ownerQuestion(item.nextAction) || item.title }),

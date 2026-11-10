@@ -26,3 +26,12 @@ test('spaces are encoded as %20, never as +', () => {
   assert.ok(!link.includes('+'));
   assert.match(link, /title=%D7%94/);
 });
+
+test('the decision quotes the question it answers, on one line and bounded', () => {
+  const q = 'מנחם: למזג?\nהמלצה: כן ' + 'x'.repeat(1000);
+  const body = new URL(decisionLink('owner/repo', 108, true, q)).searchParams.get('body');
+  const quote = body.split('\n').find(line => line.startsWith('> '));
+  assert.ok(quote.startsWith('> מנחם: למזג? המלצה: כן'));
+  assert.ok(quote.length <= 402);
+  assert.equal(body.split('\n')[0], 'החלטה: כן');
+});
