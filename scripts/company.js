@@ -33,7 +33,20 @@ function parseTaskLine(line) {
 }
 
 // The deadline text is free ("הוצע: 09.11 20:00", "11.11", "10.11 (12:00, 20:00)"). The first
-// dd.mm[ hh:mm] is taken, in the meeting's year, Asia/Jerusalem (UTC+2 in winter, UTC+3 in summer).
+// dd.mm[ hh:mm] is taken, in the meeting's year, as Asia/Jerusalem wall-clock time. The offset is
+// the zone's real one for that moment, so dates next to a daylight-saving change are not an hour off.
+const JERUSALEM = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', hourCycle: 'h23',
+  year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+function jerusalemWallClock(utcMs) {
+  const p = Object.fromEntries(JERUSALEM.formatToParts(new Date(utcMs)).map(part => [part.type, Number(part.value)]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+}
+function fromJerusalem(year, month, day, hour, minute) {
+  const wall = Date.UTC(year, month - 1, day, hour, minute);
+  let at = wall - 2 * 3600000;
+  for (let i = 0; i < 2; i += 1) at = wall - (jerusalemWallClock(at) - at); // converges in two steps
+  return jerusalemWallClock(at) === wall ? at : null; // null: a wall time that does not exist (spring gap)
+}
 function deadlineAt(text, meetingIso) {
   const iso = String(text || '').match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
   const m = iso ? [iso[0], iso[3], iso[2], iso[1], iso[4], iso[5]]
@@ -45,10 +58,11 @@ function deadlineAt(text, meetingIso) {
   if (!(day >= 1 && day <= 31 && month >= 1 && month <= 12)) return null;
   if (!m[3] && month < meeting.getUTCMonth() + 1 - 6) year += 1; // "05.01" said in November is next year
   const [hour, minute] = m[4] ? [Number(m[4]), Number(m[5])] : [23, 59];
-  const offset = month >= 4 && month <= 10 ? 3 : 2;
-  const at = Date.UTC(year, month - 1, day, hour - offset, minute);
-  const check = new Date(at + offset * 3600000);
-  return check.getUTCDate() === day && check.getUTCMonth() === month - 1 ? new Date(at).toISOString() : null;
+  if (hour > 23 || minute > 59) return null;
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCDate() !== day || check.getUTCMonth() !== month - 1) return null; // e.g. 31.02
+  const at = fromJerusalem(year, month, day, hour, minute);
+  return at == null ? null : new Date(at).toISOString();
 }
 
 function parseMinutes(body, createdAt) {

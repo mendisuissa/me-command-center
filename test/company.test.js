@@ -27,6 +27,11 @@ test('deadlines are read in Israel time, in the meeting year, and impossible dat
   assert.equal(deadlineAt('הוצע: 2026-11-04 12:00', '2026-11-03T10:00:00Z'), '2026-11-04T10:00:00.000Z');
   assert.equal(deadlineAt('05.01', '2026-11-09T10:00:00Z'), '2027-01-05T21:59:00.000Z', 'January said in November is next year');
   assert.equal(deadlineAt('31.02', '2026-11-09T10:00:00Z'), null);
+  // Codex review on 4b387d7: next to the daylight-saving changes the real offset applies.
+  assert.equal(deadlineAt('26.10 12:00', '2026-10-25T10:00:00Z'), '2026-10-26T10:00:00.000Z', 'after the October change: UTC+2');
+  assert.equal(deadlineAt('24.10 12:00', '2026-10-20T10:00:00Z'), '2026-10-24T09:00:00.000Z', 'before it: UTC+3');
+  assert.equal(deadlineAt('30.03 12:00', '2026-03-20T10:00:00Z'), '2026-03-30T09:00:00.000Z', 'after the March change: UTC+3');
+  assert.equal(deadlineAt('09.11 25:00', '2026-11-09T10:00:00Z'), null);
   assert.equal(deadlineAt('לא נקבע', '2026-11-09T10:00:00Z'), null);
 });
 
