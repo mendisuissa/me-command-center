@@ -103,16 +103,26 @@
     $('verdict-meta').replaceChildren(...meta.map(text => el('li', { text })));
   }
 
-  function renderOwner(issues) {
-    const waiting = issues.filter(needsOwner);
+  // Owner decisions live on issues and on PRs (a merge or deploy question sits on its PR).
+  function renderOwner(issues, pulls, repo) {
+    const waiting = [...issues, ...(pulls || [])].filter(needsOwner)
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     $('owner-count').textContent = waiting.length ? `${waiting.length}` : '';
-    $('owner').replaceChildren(...(waiting.length ? waiting.map(issue => {
-      const link = githubLink(issue.url);
+    $('owner').replaceChildren(...(waiting.length ? waiting.map(item => {
+      const link = githubLink(item.url);
+      const question = item.nextAction || item.title;
+      const yes = window.Decision.decisionLink(repo, item.number, true, question);
+      const no = window.Decision.decisionLink(repo, item.number, false, question);
       return el('article', { className: 'decision' }, [
-        el('p', { className: 'meta' }, [el('span', { text: `#${issue.number}` }), el('span', { text: `עודכן ${ago(issue.updatedAt)}` })]),
-        el('p', { className: 'question', text: ownerQuestion(issue.nextAction) || issue.title }),
-        el('p', { className: 'about' }, [document.createTextNode('בנושא: '), linkOrText(issue.title, issue.url)]),
-        link ? el('a', { className: 'answer', text: 'לענות', href: `${link}#new_comment_field` }) : null,
+        el('p', { className: 'meta' }, [el('span', { text: `#${item.number}` }), el('span', { text: `עודכן ${ago(item.updatedAt)}` })]),
+        el('p', { className: 'question', text: ownerQuestion(item.nextAction) || item.title }),
+        el('p', { className: 'about' }, [document.createTextNode('בנושא: '), linkOrText(item.title, item.url)]),
+        yes && no ? el('div', { className: 'decide' }, [
+          el('a', { className: 'answer approve', text: 'מאשר', href: yes }),
+          el('a', { className: 'answer reject', text: 'לא מאשר', href: no }),
+        ]) : null,
+        yes && no ? el('p', { className: 'hint', text: 'נפתח ב-GitHub עם ההחלטה כבר כתובה. נשאר רק ללחוץ Create.' }) : null,
+        link ? el('a', { className: 'reply', text: 'לענות במילים', href: `${link}#new_comment_field` }) : null,
       ]);
     }) : [el('p', { className: 'empty', text: 'אין החלטות שמחכות לך.' })]));
     return waiting.length;
@@ -231,7 +241,7 @@
     $('banners').replaceChildren(...banners);
 
     const down = renderFleet(data.fleet);
-    const waiting = renderOwner(data.issues);
+    const waiting = renderOwner(data.issues, data.pulls, data.repo);
     renderVerdict(data, github, waiting, down, Boolean(github?.ok && ciSource && !ciSource.ok));
     renderCeo(github?.ok ? data.manager : null);
     renderTasks(data.issues);

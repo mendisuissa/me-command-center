@@ -129,7 +129,7 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     result.pulls = pulls.map((pull, index) => ({
       number: pull.number, title: String(pull.title || '').slice(0, 300), url: safeUrl(pull.html_url),
       draft: Boolean(pull.draft), author: pull.user?.login || null, updatedAt: pull.updated_at || null,
-      labels: labelsOf(pull).slice(0, 12),
+      labels: labelsOf(pull).slice(0, 12), nextAction: nextActionFromBody(pull.body),
       ci: index < pullsWithCi.length ? ci[index] : { state: 'unknown', workflows: [] },
     }));
     const branch = String(meta?.default_branch || '');

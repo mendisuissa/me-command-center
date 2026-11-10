@@ -192,3 +192,12 @@ test('PR CI reads run at most 4 at a time and keep PR order', async () => {
   assert.equal(data.pulls[3].ci.state, 'failure');
   assert.equal(data.pulls[2].ci.state, 'none');
 });
+
+test('a PR carries its Next action, so an owner decision on a PR reaches the dashboard', async () => {
+  const { fetchImpl } = fakeGitHub({ '/pulls': [{ id: 4, number: 108, title: 'Restart fix',
+    html_url: 'https://github.com/owner/private-repo/pull/108', labels: [{ name: 'needs-owner' }], head: { sha: 'def456' },
+    body: '## What\nx\n\n## Next action\n- מנחם: למזג? המלצה: כן\n' }] });
+  const data = await collect({ token: TOKEN, repo: REPO, fetchImpl });
+  assert.equal(data.pulls[0].nextAction, 'מנחם: למזג? המלצה: כן');
+  assert.deepEqual(data.pulls[0].labels, ['needs-owner']);
+});
