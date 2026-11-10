@@ -1,6 +1,7 @@
 'use strict';
 
 const { nextActionFromBody } = require('./next-action');
+const { collectCompany } = require('./company');
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
@@ -95,7 +96,7 @@ function summarizeRuns(runs) {
 async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
   const generatedAt = new Date(now()).toISOString();
   const read = createGitHubReader({ token, repo, fetchImpl });
-  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null, manager: null };
+  const result = { schema: 1, generatedAt, repo, sources: [], issues: [], pulls: [], mainBranch: null, manager: null, company: null };
   try {
     const [meta, issues, pulls] = await Promise.all([
       read(''),
@@ -129,7 +130,7 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     result.pulls = pulls.map((pull, index) => ({
       number: pull.number, title: String(pull.title || '').slice(0, 300), url: safeUrl(pull.html_url),
       draft: Boolean(pull.draft), author: pull.user?.login || null, updatedAt: pull.updated_at || null,
-      labels: labelsOf(pull).slice(0, 12),
+      labels: labelsOf(pull).slice(0, 12), nextAction: nextActionFromBody(pull.body),
       ci: index < pullsWithCi.length ? ci[index] : { state: 'unknown', workflows: [] },
     }));
     const branch = String(meta?.default_branch || '');
@@ -137,9 +138,22 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     result.mainBranch = { name: branch, ...await ciRead(`/actions/runs?branch=${encodeURIComponent(branch)}&per_page=50`) };
     result.sources.push({ name: 'github', ok: true, fetchedAt: generatedAt });
     if (ciErrors.size) result.sources.push({ name: 'github-ci', ok: false, fetchedAt: generatedAt, error: [...ciErrors].sort().join(',') });
+    // The Company view is secondary too: its failure is reported on its own and hides nothing above.
+    // The issues list also returns PRs, with their comment counts, which the pulls list omits.
+    const comments = new Map(issues.map(item => [item.number, item.comments]));
+    const withComments = list => list.map(item => ({ ...item, comments: comments.get(item.number) || 0 }));
+    let errors = [];
+    try {
+      const company = await collectCompany({ read, issues: withComments(result.issues), pulls: withComments(result.pulls), now, mapLimit, concurrency: CI_CONCURRENCY });
+      ({ errors } = company);
+      delete company.errors;
+      result.company = company;
+    } catch { errors = ['company:GITHUB_COLLECTION_FAILED']; }
+    result.sources.push(errors.length ? { name: 'github-company', ok: false, fetchedAt: generatedAt, error: errors.sort().join(',') }
+      : { name: 'github-company', ok: true, fetchedAt: generatedAt });
   } catch (error) {
     // Publish the failure itself (encrypted) instead of stale numbers presented as current.
-    result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null;
+    result.issues = []; result.pulls = []; result.mainBranch = null; result.manager = null; result.company = null;
     result.sources.push({ name: 'github', ok: false, fetchedAt: generatedAt,
       error: /^GITHUB_[A-Z0-9_]+$/.test(error.message) ? error.message : 'GITHUB_COLLECTION_FAILED' });
   }

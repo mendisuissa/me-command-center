@@ -43,7 +43,9 @@ function fakeGitHub(overrides = {}) {
 test('collects issues, PR CI and main-branch CI with read-only authenticated GETs', async () => {
   const { fetchImpl, calls } = fakeGitHub();
   const data = await collect({ token: TOKEN, repo: REPO, fetchImpl, now: () => Date.parse('2026-10-29T12:00:00Z') });
-  assert.deepEqual(data.sources, [{ name: 'github', ok: true, fetchedAt: '2026-10-29T12:00:00.000Z' }]);
+  assert.deepEqual(data.sources[0], { name: 'github', ok: true, fetchedAt: '2026-10-29T12:00:00.000Z' });
+  assert.deepEqual(data.sources.map(source => source.name), ['github', 'github-company'],
+    'the Company view reports its own source and never replaces the GitHub one');
   assert.equal(data.issues.length, 1);
   assert.equal(data.issues[0].priority, 'P1');
   assert.equal(data.issues[0].nextAction, 'Approve the staging budget');
