@@ -110,6 +110,57 @@ test('a failed minutes read is reported by itself and leaves activity intact', a
   assert.equal(company.activity.find(agent => agent.name === 'CEO').today.length, 1);
 });
 
+// Codex review on 502891c: right after a 100-comment boundary the last page holds one comment.
+function paged(pages) {
+  const calls = [];
+  const read = async path => {
+    calls.push(path);
+    const m = path.match(/^\/issues\/(\d+)\/comments\?per_page=100&page=(\d+)$/);
+    if (m) return pages[m[1]]?.[Number(m[2]) - 1] ?? [];
+    if (path === '/issues/100') return { comments: (pages[100] || []).reduce((n, p) => n + p.length, 0) };
+    throw new Error('GITHUB_HTTP_404');
+  };
+  return { read, calls };
+}
+const fill = (n, at) => Array.from({ length: n }, () => ({ user: { login: 'github-actions[bot]', type: 'Bot' }, body: 'ci', created_at: at }));
+
+test('101 comments: an agent\'s comment on the previous page still counts as today\'s activity', async () => {
+  const page1 = [...fill(99, '2026-11-01T00:00:00Z'), { user: { login: 'mendisuissa', type: 'User' }, body: '**[Claude]** done', created_at: '2026-11-10T12:00:00Z' }];
+  const page2 = [{ user: { login: 'github-actions[bot]', type: 'Bot' }, body: 'ci', created_at: '2026-11-10T13:00:00Z' }];
+  const { read, calls } = paged({ 103: [page1, page2] });
+  const company = await collectCompany({ read, issues: [{ ...issues[0], comments: 101 }], pulls: [], now: () => NOW, mapLimit });
+  assert.deepEqual(company.errors, []);
+  assert.deepEqual(company.activity.find(agent => agent.name === 'Claude').today.map(item => item.number), [103]);
+  assert.ok(calls.includes('/issues/103/comments?per_page=100&page=1'), 'the read went back a page');
+});
+
+test('the activity read stops once a page reaches before the 7-day window', async () => {
+  const old = fill(100, '2026-10-20T00:00:00Z');
+  const recentPage = [...fill(99, '2026-10-25T00:00:00Z'), { user: { login: 'mendisuissa', type: 'User' }, body: '**[CEO]** run', created_at: '2026-11-10T10:00:00Z' }];
+  const { read, calls } = paged({ 103: [old, old, recentPage] });
+  const company = await collectCompany({ read, issues: [{ ...issues[0], comments: 300 }], pulls: [], now: () => NOW, mapLimit });
+  assert.equal(company.activity.find(agent => agent.name === 'CEO').items7d, 1);
+  assert.ok(!calls.includes('/issues/103/comments?per_page=100&page=2'), 'page 3 already reaches before the window');
+});
+
+test('backfilled older minutes on the last page do not replace a newer meeting on the page before', async () => {
+  const newer = { body: MINUTES('cccccccc-9', 'סיכום פגישה, 09.11.2026, 12:20–12:40', ['- חדש · אחראי: CEO']),
+    created_at: '2026-11-09T11:25:00Z', html_url: 'https://github.com/o/r/issues/100#new' };
+  const backfill = { body: MINUTES('dddddddd-3', 'סיכום פגישה, 03.11.2026, 16:39–17:08', ['- ישן · אחראי: CEO']),
+    created_at: '2026-11-09T11:27:00Z', html_url: 'https://github.com/o/r/issues/100#old' };
+  const { read } = paged({ 100: [[...fill(99, '2026-11-01T00:00:00Z'), newer], [backfill]] });
+  const company = await collectCompany({ read, issues: [], pulls: [], now: () => NOW, mapLimit });
+  assert.deepEqual(company.errors, []);
+  assert.equal(company.minutes.url, 'https://github.com/o/r/issues/100#new');
+});
+
+test('a comment history longer than the page budget fails instead of showing a partial picture', async () => {
+  const recent = fill(100, '2026-11-10T09:00:00Z');
+  const { read } = paged({ 103: Array.from({ length: 7 }, () => recent) });
+  const company = await collectCompany({ read, issues: [{ ...issues[0], comments: 700 }], pulls: [], now: () => NOW, mapLimit });
+  assert.deepEqual(company.errors, ['activity:GITHUB_PAGINATION_LIMIT']);
+});
+
 test('the comment read goes to the last page, where the newest comments are', async () => {
   const { read, calls } = reader({
     '/issues/100/comments': [], '/issues/100': { comments: 250 }, '/issues/103/comments': [],

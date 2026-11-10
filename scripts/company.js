@@ -8,6 +8,7 @@ const MINUTES_ISSUE = 100;
 const MINUTES_MARKER = /<!--\s*boardroom-minutes:([0-9a-f-]{8,64})\s*-->/;
 const ACTIVITY_DAYS = 7;
 const MAX_ACTIVITY_ITEMS = 40;
+const MAX_COMMENT_PAGES = 5; // 500 comments back per item; beyond that the read fails rather than guess
 const IDLE_HOURS = 48;
 const AGENTS = ['CEO', 'Claude', 'Dispatcher', 'Codex', 'ChatGPT', 'מנחם'];
 const NOT_SET = 'לא נקבע';
@@ -115,32 +116,44 @@ async function collectCompany({ read, issues, pulls, now = () => Date.now(), map
   const items = [...issues.map(item => ({ ...item, kind: 'issue' })), ...pulls.map(item => ({ ...item, kind: 'pull' }))];
   const openByNumber = new Map(items.map(item => [item.number, item]));
   const result = { minutes: null, activity: [], idle: [], errors: [] };
-  const lastPage = async (number, count) => {
-    const page = Math.max(1, Math.ceil(Number(count || 0) / 100));
-    const batch = await read(`/issues/${number}/comments?per_page=100&page=${page}`);
-    if (!Array.isArray(batch)) throw new Error('GITHUB_RESPONSE_INVALID');
-    return batch;
-  };
   const code = error => (/^GITHUB_[A-Z0-9_]+$/.test(error?.message) ? error.message : 'GITHUB_COLLECTION_FAILED');
+  // Reads comment pages from the newest backwards, until `enough(collected, oldestOnPages)` holds or
+  // page 1 is read. The last page alone is not enough: right after a 100-comment boundary it holds a
+  // single comment. Running out of the page budget first throws, so a partial read is never presented
+  // as complete.
+  const readBack = async (number, count, enough, maxPages = MAX_COMMENT_PAGES) => {
+    const collected = [];
+    for (let page = Math.max(1, Math.ceil(Number(count || 0) / 100)), reads = 0; page >= 1; page -= 1, reads += 1) {
+      if (reads === maxPages) throw new Error('GITHUB_PAGINATION_LIMIT');
+      const batch = await read(`/issues/${number}/comments?per_page=100&page=${page}`);
+      if (!Array.isArray(batch)) throw new Error('GITHUB_RESPONSE_INVALID');
+      collected.unshift(...batch);
+      const oldest = Math.min(...batch.map(comment => Date.parse(comment.created_at)).filter(Number.isFinite));
+      if (batch.length && enough(collected, oldest)) break;
+    }
+    return collected;
+  };
+  const minutesOf = comment => {
+    const parsed = parseMinutes(comment.body, comment.created_at);
+    if (!parsed) return null;
+    parsed.url = typeof comment.html_url === 'string' && comment.html_url.startsWith('https://github.com/') ? comment.html_url : null;
+    parsed.meetingAt = deadlineAt(parsed.title.replace(/^[^\d]*/, ''), comment.created_at) || comment.created_at;
+    return parsed;
+  };
+  const newestMeeting = list => list.map(minutesOf).filter(Boolean)
+    .sort((a, b) => Date.parse(b.meetingAt) - Date.parse(a.meetingAt))[0] || null;
 
   try {
     const issue = await read(`/issues/${MINUTES_ISSUE}`);
-    let comments = await lastPage(MINUTES_ISSUE, issue?.comments);
-    // A long tail of non-minutes comments can push the last minutes to the previous page.
-    if (!comments.some(comment => MINUTES_MARKER.test(comment.body || '')) && Number(issue?.comments) > 100) {
-      const previous = await read(`/issues/${MINUTES_ISSUE}/comments?per_page=100&page=${Math.ceil(issue.comments / 100) - 1}`);
-      if (Array.isArray(previous)) comments = previous;
-    }
     // Minutes can be posted out of order (a backlog of older meetings), so the newest meeting wins,
-    // by the meeting time in the title, not by when the comment was posted.
-    const all = comments.map(comment => {
-      const parsed = parseMinutes(comment.body, comment.created_at);
-      if (!parsed) return null;
-      parsed.url = typeof comment.html_url === 'string' && comment.html_url.startsWith('https://github.com/') ? comment.html_url : null;
-      parsed.meetingAt = deadlineAt(parsed.title.replace(/^[^\d]*/, ''), comment.created_at) || comment.created_at;
-      return parsed;
-    }).filter(Boolean);
-    const minutes = all.sort((a, b) => Date.parse(b.meetingAt) - Date.parse(a.meetingAt))[0] || null;
+    // by the meeting time in the title, not by when the comment was posted. Minutes are always
+    // posted after their meeting, so once the pages reach back before the best meeting found, no
+    // earlier comment can describe a newer one.
+    const comments = await readBack(MINUTES_ISSUE, issue?.comments, (collected, oldest) => {
+      const best = newestMeeting(collected);
+      return Boolean(best) && oldest < Date.parse(best.meetingAt);
+    });
+    const minutes = newestMeeting(comments);
     if (minutes) minutes.tasks = minutes.tasks.map(task => taskState(task, minutes, openByNumber, nowMs));
     result.minutes = minutes;
   } catch (error) { result.errors.push(`minutes:${code(error)}`); }
@@ -150,7 +163,11 @@ async function collectCompany({ read, issues, pulls, now = () => Date.now(), map
       .filter(item => nowMs - Date.parse(item.updatedAt) <= ACTIVITY_DAYS * 86400000)
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, MAX_ACTIVITY_ITEMS);
-    const perItem = await mapLimit(recent, concurrency, async item => (await lastPage(item.number, item.comments))
+    // Every comment inside the 7-day window is read, not just the last page.
+    const windowStart = nowMs - ACTIVITY_DAYS * 86400000;
+    const perItem = await mapLimit(recent, concurrency, async item => (await readBack(item.number, item.comments,
+      (_collected, oldest) => oldest < windowStart))
+      .filter(comment => Date.parse(comment.created_at) >= windowStart)
       .map(comment => ({ who: signer(comment), at: comment.created_at, item })));
     result.activity = summarizeActivity(perItem.flat().filter(entry => entry.who), nowMs);
     result.activityItems = recent.length;
