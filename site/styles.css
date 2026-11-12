@@ -114,6 +114,12 @@ input[type=password]:focus{border-color:var(--accent);outline:none;box-shadow:0 
 .decision .about a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong)}
 .answer{justify-self:start;display:inline-flex;align-items:center;min-height:44px;padding:.5rem 1.25rem;margin-top:.15rem;border-radius:11px;background:var(--warn);color:var(--warn-ink);font-weight:700}
 .answer:hover{text-decoration:none;filter:brightness(1.08)}
+.decide{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.15rem}
+.decide .answer{margin-top:0;justify-content:center;flex:1 1 9rem}
+.answer.approve{background:var(--ok);color:var(--bg)}
+.answer.reject{background:transparent;color:var(--text);border:1px solid var(--line-strong)}
+.decision .hint{font-size:.78rem;color:var(--muted)}
+.decision .reply{justify-self:start;font-size:.85rem;color:var(--muted);text-decoration:underline}
 
 /* CEO report */
 .ceo-verdict{font-size:.98rem;font-weight:600;line-height:1.5;margin-bottom:.8rem;overflow-wrap:anywhere}
