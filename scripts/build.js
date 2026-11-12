@@ -2,6 +2,7 @@
 
 // Collects the private GitHub state, encrypts it, and writes the static site to _site/.
 // This repository and its Actions logs are public: print only short status codes, never data.
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { collect } = require('./collect');
@@ -20,6 +21,18 @@ function fail(code) {
 function assertNoPlaintext(serialized, data) {
   const titles = [...data.issues, ...data.pulls].map(item => item.title).filter(title => title.length >= 6);
   if (titles.some(title => serialized.includes(title)) || serialized.includes(data.repo)) fail('PLAINTEXT_IN_OUTPUT');
+}
+
+// GitHub Pages lets browsers keep every file for 10 minutes. Right after a deploy a phone could load
+// the new index.html with the previous app.js, and new panels then stay blank (12.11). Each script and
+// stylesheet reference therefore carries a hash of that file's content: a page and its code always match.
+function versionAssets(html, contentOf) {
+  return html.replace(/(<script\s+src="|<link\s+rel="stylesheet"\s+href=")([a-z0-9-]+\.(?:js|css))"/g, (whole, prefix, file) => {
+    const content = contentOf(file);
+    if (content == null) return whole;
+    const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 12);
+    return `${prefix}${file}?v=${hash}"`;
+  });
 }
 
 async function main(env = process.env) {
@@ -45,6 +58,11 @@ async function main(env = process.env) {
   for (const file of fs.readdirSync(path.join(ROOT, 'site'))) {
     fs.copyFileSync(path.join(ROOT, 'site', file), path.join(out, file));
   }
+  const index = path.join(out, 'index.html');
+  fs.writeFileSync(index, versionAssets(fs.readFileSync(index, 'utf8'), file => {
+    const asset = path.join(out, file);
+    return fs.existsSync(asset) ? fs.readFileSync(asset) : null;
+  }));
   fs.writeFileSync(path.join(out, 'data.json'), serialized);
   fs.writeFileSync(path.join(out, '.nojekyll'), '');
   const github = data.sources.find(source => source.name === 'github');
@@ -54,4 +72,4 @@ async function main(env = process.env) {
 
 if (require.main === module) main().catch(() => fail('UNEXPECTED'));
 
-module.exports = { main, MIN_PASSPHRASE };
+module.exports = { main, MIN_PASSPHRASE, versionAssets };
