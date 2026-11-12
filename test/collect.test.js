@@ -203,3 +203,25 @@ test('a PR carries its Next action, so an owner decision on a PR reaches the das
   assert.equal(data.pulls[0].nextAction, 'מנחם: למזג? המלצה: כן');
   assert.deepEqual(data.pulls[0].labels, ['needs-owner']);
 });
+
+test('a meeting task that names the open CEO report reads as open, not closed', async () => {
+  // Codex review on 0e858b3: the report is kept off the task panel, but it is still an open item.
+  const minutes = ['**[Claude]** **סיכום פגישה, 09.11.2026, 12:20–12:40**', '', '<!-- boardroom-minutes:aaaaaaaa-1 -->', '',
+    '## מה הוחלט', '- אין.', '', '## משימות', '- לעדכן את #18 · אחראי: CEO · סטטוס: פתוח · דדליין: 20.11', ''].join('\n');
+  const { fetchImpl } = fakeGitHub({
+    '/issues': [
+      { id: 9, number: 18, title: 'דוח CEO', labels: [{ name: 'ceo' }], updated_at: '2026-11-10T09:00:00Z',
+        html_url: 'https://github.com/owner/private-repo/issues/18', body: '', comments: 0 },
+      { id: 10, number: 100, title: 'Board Room', labels: [], updated_at: '2026-11-09T11:30:00Z',
+        html_url: 'https://github.com/owner/private-repo/issues/100', body: '', comments: 1 },
+    ],
+    '/issues/18/comments': [],
+    '/issues/100/comments': [{ id: 77, body: minutes, created_at: '2026-11-09T11:25:00Z', user: { login: 'mendisuissa', type: 'User' } }],
+  });
+  const data = await collect({ token: TOKEN, repo: REPO, fetchImpl, now: () => Date.parse('2026-11-10T12:00:00Z') });
+  assert.equal(data.manager.number, 18);
+  assert.deepEqual(data.issues.map(issue => issue.number), [100], 'the report stays off the task panel');
+  const [task] = data.company.minutes.tasks;
+  assert.deepEqual(task.linked.map(item => [item.number, item.open]), [[18, true]]);
+  assert.equal(task.state, 'open');
+});

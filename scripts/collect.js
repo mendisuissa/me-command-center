@@ -142,9 +142,14 @@ async function collect({ token, repo, fetchImpl, now = () => Date.now() }) {
     // The issues list also returns PRs, with their comment counts, which the pulls list omits.
     const comments = new Map(issues.map(item => [item.number, item.comments]));
     const withComments = list => list.map(item => ({ ...item, comments: comments.get(item.number) || 0 }));
+    // The CEO report is kept off the task panel above, but it is an open item: a meeting task that
+    // names it must read as open, not closed (Codex review on 0e858b3).
+    const reportItem = report ? { number: report.number, title: String(report.title || '').slice(0, 300), url: safeUrl(report.html_url),
+      labels: labelsOf(report).slice(0, 12), updatedAt: report.updated_at || null } : null;
+    const companyIssues = reportItem ? [...result.issues, reportItem] : result.issues;
     let errors = [];
     try {
-      const company = await collectCompany({ read, issues: withComments(result.issues), pulls: withComments(result.pulls), now, mapLimit, concurrency: CI_CONCURRENCY });
+      const company = await collectCompany({ read, issues: withComments(companyIssues), pulls: withComments(result.pulls), now, mapLimit, concurrency: CI_CONCURRENCY });
       ({ errors } = company);
       delete company.errors;
       result.company = company;
