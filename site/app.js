@@ -224,6 +224,74 @@
     }));
   }
 
+  // The meeting gives each task its owner and deadline; its state comes from the GitHub items it names.
+  const TASK_STATE = {
+    overdue: ['bad', 'עבר הדדליין'], closed: ['ok', 'נסגר ב-GitHub'], open: ['', 'פתוח ב-GitHub'],
+    untracked: ['warn', 'אין פריט ב-GitHub'],
+  };
+  function renderMinutes(minutes, failed) {
+    $('minutes-count').textContent = minutes ? `${minutes.tasks.length} משימות` : '';
+    if (!minutes) {
+      $('minutes-meta').textContent = '';
+      $('minutes').replaceChildren(el('p', { className: 'empty', text: failed ? 'לא הצלחתי לקרוא את סיכומי הפגישות.' : 'עוד אין סיכום פגישה.' }));
+      return;
+    }
+    const late = minutes.tasks.filter(task => task.state === 'overdue').length;
+    $('minutes-meta').replaceChildren(linkOrText(minutes.title, minutes.url),
+      document.createTextNode(` · ${late ? `${late} עברו את הדדליין` : 'אף משימה לא עברה את הדדליין'}`));
+    const rows = [];
+    if (minutes.decisions.length) rows.push(el('article', { className: 'row' }, [
+      el('p', { className: 'title', text: 'הוחלט' }),
+      el('ul', null, minutes.decisions.map(text => el('li', { className: 'next', text }))),
+    ]));
+    for (const task of minutes.tasks) {
+      const [tone, label] = TASK_STATE[task.state] || ['', task.state];
+      rows.push(el('article', { className: `row${task.state === 'overdue' ? ' late' : ''}` }, [
+        el('p', { className: 'title', text: task.text }),
+        el('div', { className: 'chips' }, [
+          el('span', { className: 'chip', text: `אחראי: ${task.owner}` }),
+          el('span', { className: `chip${task.deadline === 'לא נקבע' ? ' warn' : ''}`, text: task.deadline === 'לא נקבע' ? 'בלי דדליין' : `דדליין: ${task.deadline}` }),
+          el('span', { className: `chip ${tone}`, text: label }),
+          ...task.linked.map(item => linkOrText(`#${item.number} ${item.open ? `פתוח · ${ago(item.updatedAt)}` : 'נסגר'}`, item.url, 'chip')),
+        ]),
+      ]));
+    }
+    if (minutes.blockers.length) rows.push(el('article', { className: 'row' }, [
+      el('p', { className: 'title', text: 'מה עצר בפגישה' }),
+      el('ul', null, minutes.blockers.slice(0, 6).map(text => el('li', { className: 'next', text }))),
+    ]));
+    $('minutes').replaceChildren(...rows);
+  }
+
+  // From each agent's signed comments on items updated in the last 7 days.
+  function renderAgents(company, failed) {
+    const agents = company?.activity || [];
+    $('agents-note').textContent = company?.activityItems != null ? `לפי ${company.activityItems} פריטים, 7 ימים` : '';
+    if (!agents.length) {
+      $('agents').replaceChildren(el('p', { className: 'empty', text: failed ? 'לא הצלחתי לקרוא את הפעילות.' : 'אין פעילות.' }));
+      return;
+    }
+    $('agents').replaceChildren(...agents.map(agent => {
+      const quiet = !agent.lastAt || Date.now() - Date.parse(agent.lastAt) > 24 * 3600000;
+      return el('div', { className: `row agent${quiet ? ' quiet' : ''}` }, [
+        el('span', { className: 'name', text: agent.name }),
+        el('span', { className: 'detail', text: agent.lastAt ? `פעיל ${ago(agent.lastAt)}` : 'לא פעיל 7 ימים' }),
+        agent.today.length ? el('p', { className: 'items' }, [document.createTextNode('היום: '),
+          ...agent.today.flatMap((item, i) => [i ? document.createTextNode(', ') : null, linkOrText(`#${item.number}`, item.url)].filter(Boolean))]) : null,
+      ]);
+    }));
+  }
+
+  function renderIdle(idle) {
+    $('idle-count').textContent = idle?.length ? `${idle.length}` : '';
+    $('idle').replaceChildren(...(idle?.length ? idle.map(item => el('article', { className: 'row' }, [
+      el('div', { className: 'line' }, [el('span', { className: 'num', text: `#${item.number}` }),
+        el('p', { className: 'title' }, [linkOrText(item.title, item.url)])]),
+      el('div', { className: 'chips' }, [el('span', { className: 'chip warn', text: `נגעו בו ${ago(item.updatedAt)}` }),
+        el('span', { className: 'chip', text: item.kind === 'pull' ? 'PR' : 'משימה' })]),
+    ])) : [el('p', { className: 'empty', text: 'כל הפריטים הפתוחים זזו ביומיים האחרונים.' })]));
+  }
+
   function render(data) {
     const github = (data.sources || []).find(source => source.name === 'github');
     const banners = [];
@@ -247,6 +315,11 @@
     renderTasks(data.issues);
     renderPulls(data.pulls);
     renderMain(data.mainBranch);
+    const companySource = (data.sources || []).find(source => source.name === 'github-company');
+    const company = github?.ok ? data.company : null;
+    renderMinutes(company?.minutes || null, Boolean(companySource && !companySource.ok && /minutes/.test(companySource.error || '')));
+    renderAgents(company, Boolean(companySource && !companySource.ok && /activity/.test(companySource.error || '')));
+    renderIdle(company?.idle || []);
     $('generated').textContent = `נאסף: ${when(data.generatedAt)}`;
   }
 
@@ -276,7 +349,7 @@
   async function lock() {
     key = null;
     await forgetKey();
-    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta'].forEach(id => $(id).replaceChildren());
+    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta', 'minutes', 'minutes-meta', 'agents', 'idle'].forEach(id => $(id).replaceChildren());
     show(false);
     setStatus('');
     $('passphrase').focus();

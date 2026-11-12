@@ -90,6 +90,13 @@ input[type=password]:focus{border-color:var(--accent);outline:none;box-shadow:0 
 .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
 .col{display:grid;gap:1rem;align-content:start;min-width:0}
 @media (min-width:920px){.layout{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}}
+.layout.company{margin-bottom:1rem}
+.row.late{border-inline-start:3px solid var(--bad);padding-inline-start:.6rem}
+.agent{grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:.25rem .65rem}
+.agent .name{font-weight:600;font-size:.92rem}
+.agent .detail{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.agent .items{grid-column:1/-1;font-size:.8rem;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
+.agent.quiet .detail{color:var(--warn);font-weight:600}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.1rem 1.1rem;box-shadow:var(--shadow);min-width:0}
 .panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;margin-bottom:.7rem}
