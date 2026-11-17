@@ -3,7 +3,7 @@
 (function () {
   const $ = id => document.getElementById(id);
   const STALE_MINUTES = 75;        // the schedule runs every 30 minutes; GitHub may delay a run
-  const CEO_STALE_HOURS = 8;       // the CEO runs five times a day
+  const CEO_STALE_HOURS = 26;      // the CEO runs once a day, at 09:00 Israel time (#160)
   const REFRESH_MS = 5 * 60 * 1000;
   const STATE = { success: ['ok', 'עובר'], failure: ['bad', 'נכשל'], pending: ['warn', 'רץ'], cancelled: ['', 'בוטל'],
     none: ['', 'בלי CI'], unknown: ['', 'לא נבדק'] };
@@ -88,7 +88,7 @@
     else if (waiting) { state = 'warn'; text = waiting === 1 ? 'החלטה אחת מחכה לך' : `${waiting} החלטות מחכות לך`; }
     else if (!(ageMinutes <= STALE_MINUTES)) { state = 'warn'; text = 'הנתונים לא התעדכנו כבר זמן רב'; }
     else if (ciFailed) { state = 'warn'; text = 'קריאת ה-CI נכשלה, ולכן מצב ה-CI לא ידוע'; }
-    else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מ-8 שעות'; }
+    else if (ceoHours > CEO_STALE_HOURS) { state = 'warn'; text = 'ה-CEO לא דיווח יותר מיממה'; }
     $('verdict').className = `verdict ${state}`;
     $('verdict-text').textContent = text;
 
@@ -101,6 +101,29 @@
       `נתונים: ${ago(data.generatedAt)}`,
     ].filter(Boolean);
     $('verdict-meta').replaceChildren(...meta.map(text => el('li', { text })));
+  }
+
+  // Publications per week (#160): what reached readers since Sunday, against the weekly target.
+  function renderPubs(pubs) {
+    if (!pubs || pubs.error || !pubs.week) {
+      $('pubs-note').textContent = '';
+      $('pubs').replaceChildren(el('p', { className: 'empty', text: 'לא הצלחתי לקרוא את מספר הפרסומים מהבוט.' }));
+      return;
+    }
+    const tile = (label, value, target, last) => {
+      const state = target == null ? '' : value >= target ? 'ok' : 'warn';
+      return el('div', { className: `pub ${state}` }, [
+        el('span', { className: 'pub-label', text: label }),
+        el('span', { className: 'pub-value', text: target == null ? String(value) : `${value}/${target}` }),
+        el('span', { className: 'pub-last', text: last ? `אחרון: ${ago(last)}` : 'עוד לא פורסם' }),
+      ]);
+    };
+    $('pubs-note').textContent = pubs.onTrack ? 'בקצב' : 'מתחת ליעד';
+    $('pubs').replaceChildren(
+      tile("What's New", pubs.week.whatsNew, pubs.target?.whatsNew ?? 3, pubs.lastPublished?.whatsNew),
+      tile('מאמרים', pubs.week.articles, pubs.target?.articles ?? 1, pubs.lastPublished?.articles),
+      tile('סיכום בלינקדאין', pubs.week.linkedin, null, pubs.lastPublished?.linkedin),
+    );
   }
 
   // Owner decisions live on issues and on PRs (a merge or deploy question sits on its PR).
@@ -308,6 +331,7 @@
     }
     $('banners').replaceChildren(...banners);
 
+    renderPubs(data.publications);
     const down = renderFleet(data.fleet);
     const waiting = renderOwner(data.issues, data.pulls, data.repo);
     renderVerdict(data, github, waiting, down, Boolean(github?.ok && ciSource && !ciSource.ok));
@@ -349,7 +373,7 @@
   async function lock() {
     key = null;
     await forgetKey();
-    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'banners', 'verdict-meta', 'minutes', 'minutes-meta', 'agents', 'idle'].forEach(id => $(id).replaceChildren());
+    ['owner', 'manager', 'tasks', 'prs', 'ci', 'fleet', 'pubs', 'banners', 'verdict-meta', 'minutes', 'minutes-meta', 'agents', 'idle'].forEach(id => $(id).replaceChildren());
     show(false);
     setStatus('');
     $('passphrase').focus();

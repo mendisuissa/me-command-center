@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { collect } = require('./collect');
 const { probeFleet, parseFleet } = require('./fleet');
+const { fetchPublications } = require('./publications');
 const vault = require('../site/vault');
 
 const MIN_PASSPHRASE = 24;
@@ -34,6 +35,7 @@ async function main(env = process.env) {
     fleetUrls = parseFleet(env.CC_FLEET).map(system => system.url);
     data.fleet = await probeFleet(env.CC_FLEET);
   } catch { data.fleet = { error: 'CC_FLEET_INVALID', systems: [] }; }
+  try { data.publications = await fetchPublications(env.CC_FLEET); } catch { data.publications = { error: 'PUBLICATIONS_UNAVAILABLE' }; }
   const envelope = await vault.seal(await vault.deriveKey(passphrase), data);
   const serialized = JSON.stringify(envelope);
   assertNoPlaintext(serialized, data);

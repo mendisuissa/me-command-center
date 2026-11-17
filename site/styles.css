@@ -84,6 +84,19 @@ input[type=password]:focus{border-color:var(--accent);outline:none;box-shadow:0 
 .verdict.bad .dot{background:var(--bad);box-shadow:0 0 0 5px var(--bad-soft);animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 9px transparent}}
 .verdict-meta{display:flex;flex-wrap:wrap;gap:.4rem .5rem;margin-top:.85rem;padding-inline-start:1.65rem}
+/* Publications per week (#160): the one number the company is measured on */
+.pubs{padding:1rem 1.1rem 1.1rem;border-radius:20px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);margin-bottom:1rem}
+.pubs .panel-head{margin-bottom:.75rem}
+.pubs-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem}
+.pub{display:grid;gap:.15rem;padding:.75rem .85rem;border-radius:14px;border:1px solid var(--line);background:var(--surface-2)}
+.pub.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));background:linear-gradient(0deg,var(--ok-soft),var(--ok-soft)),var(--surface-2)}
+.pub.warn{border-color:var(--warn-line);background:linear-gradient(0deg,var(--warn-soft),var(--warn-soft)),var(--surface-2)}
+.pub-label{color:var(--muted);font-size:.8rem;font-weight:600}
+.pub-value{font-size:1.6rem;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
+.pub.ok .pub-value{color:var(--ok)}
+.pub.warn .pub-value{color:var(--warn)}
+.pub-last{color:var(--faint);font-size:.75rem}
+@media (max-width:420px){.pubs-grid{grid-template-columns:1fr}.pub{grid-template-columns:1fr auto;align-items:baseline}.pub-last{grid-column:1/-1}}
 .verdict-meta li{font-size:.8rem;color:var(--muted);padding:.2rem .6rem;border-radius:999px;background:color-mix(in srgb,var(--text) 6%,transparent);font-variant-numeric:tabular-nums}
 
 /* Layout */
